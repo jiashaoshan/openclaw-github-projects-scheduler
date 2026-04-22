@@ -78,15 +78,12 @@ crontab -e
 
 主 Agent（main）负责统一检查所有任务文件并分发给对应 Agent。
 
-**方法：在 HEARTBEAT.md 中直接编写代码**
+**核心机制：**
+- OpenClaw Cron 定时发送 message 给主 Agent
+- message 中包含 Python 代码，Agent 执行后返回结果
+- `sessions_spawn` 是 OpenClaw 内置函数，用于启动子 Agent
 
-1. **创建/编辑 HEARTBEAT.md**（在 workspace 根目录 `~/.openclaw/workspace/HEARTBEAT.md`）：
-
-```markdown
-# HEARTBEAT.md - GitHub Projects 任务调度
-
-## GitHub Projects 任务调度（每分钟检查）
-
+**代码逻辑：**
 ```python
 import json
 from pathlib import Path
@@ -99,16 +96,14 @@ def check_github_project_tasks():
     triggered = []
     
     if not tasks_dir.exists():
-        return None, "无任务目录"
+        return None
     
-    # 遍历所有 Agent 的任务目录
     for agent_dir in tasks_dir.iterdir():
         if not agent_dir.is_dir() or agent_dir.name == "archive":
             continue
         
         agent_name = agent_dir.name
         
-        # 查找 pending 状态的任务
         for task_file in agent_dir.glob("*.json"):
             try:
                 with open(task_file) as f:
@@ -131,33 +126,26 @@ def check_github_project_tasks():
                     "mode": "run"
                 })
                 
-                triggered.append({
-                    "agent": agent_name,
-                    "title": task['title']
-                })
+                triggered.append({"agent": agent_name, "title": task['title']})
             except Exception as e:
-                print(f"处理任务失败: {e}")
+                print(f"处理失败: {e}")
     
     return triggered
 
-# HEARTBEAT 入口
 tasks = check_github_project_tasks()
 if tasks:
     return f"【任务调度】已分发 {len(tasks)} 个任务"
 else:
     return "HEARTBEAT_OK"
 ```
-```
 
 **注意：**
-- 代码直接写在 HEARTBEAT.md 中，OpenClaw 会在执行时解析
-- `sessions_spawn` 是 OpenClaw 内置函数，用于启动子 Agent
 - 只有主 Agent 配置 HEARTBEAT，子 Agent 不配置
-- 日志会自动记录到 `/tmp/main_agent_heartbeat.log`
+- 代码在 Step 4 的 OpenClaw Cron 任务中配置
 
 ### 4. 配置 OpenClaw Cron 定时任务
 
-OpenClaw 通过 `~/.openclaw/cron/jobs.json` 管理定时任务，需要添加 GitHub Projects 任务调度任务：
+OpenClaw 通过 `~/.openclaw/cron/jobs.json` 管理定时任务。需要将 Python 代码直接嵌入任务的 `message` 中。
 
 **方法：使用 Python 脚本添加**
 
@@ -169,6 +157,63 @@ import time
 # 读取现有 jobs
 with open('/Users/jiashaoshan/.openclaw/cron/jobs.json', 'r') as f:
     data = json.load(f)
+
+# 代码直接嵌入 message
+code_message = '''执行 GitHub Projects 任务调度：
+
+```python
+import json
+from pathlib import Path
+from sessions_spawn import sessions_spawn
+from datetime import datetime
+
+def check_github_project_tasks():
+    tasks_dir = Path("/tmp/gh_tasks")
+    triggered = []
+    
+    if not tasks_dir.exists():
+        return None
+    
+    for agent_dir in tasks_dir.iterdir():
+        if not agent_dir.is_dir() or agent_dir.name == "archive":
+            continue
+        
+        agent_name = agent_dir.name
+        
+        for task_file in agent_dir.glob("*.json"):
+            try:
+                with open(task_file) as f:
+                    task = json.load(f)
+                
+                if task.get("status") != "pending":
+                    continue
+                
+                task["status"] = "processing"
+                task["started_at"] = datetime.now().isoformat()
+                with open(task_file, 'w') as f:
+                    json.dump(task, f)
+                
+                sessions_spawn({
+                    "task": f"执行 GitHub Projects 任务: {task['title']}",
+                    "runtime": "subagent",
+                    "label": f"{agent_name}-github-task",
+                    "mode": "run"
+                })
+                
+                triggered.append({"agent": agent_name, "title": task['title']})
+            except Exception as e:
+                print(f"处理失败: {e}")
+    
+    return triggered
+
+tasks = check_github_project_tasks()
+if tasks:
+    return f"【任务调度】已分发 {len(tasks)} 个任务"
+else:
+    return "HEARTBEAT_OK"
+```
+
+请执行上述代码。'''
 
 # 创建新的 GitHub Projects 任务调度 job
 new_job = {
@@ -188,11 +233,11 @@ new_job = {
     "wakeMode": "now",
     "payload": {
         "kind": "agentTurn",
-        "message": "执行 GitHub Projects 任务调度脚本：python3 ~/.openclaw/workspace/skills/github-projects/main_agent_heartbeat.py",
+        "message": code_message,
         "timeoutSeconds": 60
     },
     "delivery": {
-        "mode": "none"  # 不发送消息，静默执行
+        "mode": "none"  # 静默执行
     },
     "state": {
         "nextRunAtMs": 0,
@@ -213,21 +258,16 @@ print(f"任务名称: {new_job['name']}")
 print(f"执行周期: {new_job['schedule']['expr']} (每分钟)")
 ```
 
+**关键说明：**
+- 代码直接嵌入 `payload.message`，Agent 收到后执行
+- `sessions_spawn` 是 OpenClaw 内置函数，在 Agent 环境中可用
+- 不需要外部脚本，避免模块导入问题
+
 **验证定时任务：**
 
 ```bash
 # 查看所有定时任务
 cat ~/.openclaw/cron/jobs.json | python3 -c "import json,sys; data=json.load(sys.stdin); [print(f'{j[\"name\"]}: {j[\"schedule\"][\"expr\"]} - enabled:{j[\"enabled\"]}') for j in data['jobs']]"
-```
-
-**查看执行日志：**
-
-```bash
-# 主 Agent HEARTBEAT 日志
-tail -f /tmp/main_agent_heartbeat.log
-
-# 调度器日志
-tail -f /tmp/gh_scheduler.log
 ```
 
 ### 5. 任务执行流程
