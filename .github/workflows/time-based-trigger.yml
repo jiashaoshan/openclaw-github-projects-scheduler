@@ -1,0 +1,251 @@
+name: GitHub Projects 时间触发器
+
+on:
+  schedule:
+    # 每分钟检查一次
+    - cron: '* * * * *'
+  workflow_dispatch:  # 支持手动触发
+
+jobs:
+  check-and-trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Install dependencies
+        run: pip install requests
+      
+      - name: Check scheduled tasks
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          PROJECT_ID: ${{ secrets.PROJECT_ID }}
+        run: |
+          python3 << 'EOF'
+          import requests
+          import json
+          import os
+          from datetime import datetime, timezone
+          
+          GH_TOKEN = os.environ['GH_TOKEN']
+          PROJECT_ID = os.environ['PROJECT_ID']
+          
+          GRAPHQL_URL = "https://api.github.com/graphql"
+          
+          headers = {
+              "Authorization": f"Bearer {GH_TOKEN}",
+              "Accept": "application/vnd.github+json",
+              "Content-Type": "application/json"
+          }
+          
+          # 查询所有任务
+          query = f"""
+          query {{
+            node(id: "{PROJECT_ID}") {{
+              ... on ProjectV2 {{
+                items(first: 100) {{
+                  nodes {{
+                    id
+                    content {{
+                      ... on DraftIssue {{
+                        id
+                        title
+                        body
+                      }}
+                      ... on Issue {{
+                        id
+                        number
+                        title
+                        body
+                        state
+                      }}
+                    }}
+                    fieldValues(first: 20) {{
+                      nodes {{
+                        ... on ProjectV2ItemFieldSingleSelectValue {{
+                          field {{
+                            ... on ProjectV2FieldCommon {{
+                              name
+                            }}
+                          }}
+                          optionId
+                          name
+                        }}
+                        ... on ProjectV2ItemFieldDateValue {{
+                          field {{
+                            ... on ProjectV2FieldCommon {{
+                              name
+                            }}
+                          }}
+                          date
+                        }}
+                      }}
+                    }}
+                  }}
+                }}
+              }}
+            }}
+          }}
+          """
+          
+          response = requests.post(GRAPHQL_URL, json={"query": query}, headers=headers)
+          data = response.json()
+          
+          if "errors" in data:
+              print(f"Error: {data['errors']}")
+              exit(1)
+          
+          items = data.get("data", {}).get("node", {}).get("items", {}).get("nodes", [])
+          
+          now = datetime.now(timezone.utc)
+          triggered_tasks = []
+          
+          for item in items:
+              content = item.get("content", {})
+              if not content:
+                  continue
+              
+              title = content.get("title", "")
+              item_id = item.get("id", "")
+              
+              # 解析字段
+              field_values = item.get("fieldValues", {}).get("nodes", [])
+              agent = "main"
+              status = "Unknown"
+              start_date = None
+              
+              for fv in field_values:
+                  field_name = fv.get("field", {}).get("name", "")
+                  if field_name == "Agent":
+                      agent = fv.get("name", "main")
+                  elif field_name == "Status":
+                      status = fv.get("name", "Unknown")
+                  elif field_name == "Start date":
+                      date_str = fv.get("date", "")
+                      if date_str:
+                          start_date = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+              
+              # 检查是否应该触发
+              # 条件：状态是 Todo，有开始日期，开始日期 <= 现在
+              if status == "Todo" and start_date and start_date <= now:
+                  triggered_tasks.append({
+                      "item_id": item_id,
+                      "title": title,
+                      "agent": agent,
+                      "start_date": start_date.isoformat()
+                  })
+                  print(f"🚀 触发任务: {title} (Agent: {agent})")
+          
+          # 输出结果
+          with open(os.environ.get('GITHUB_OUTPUT', '/dev/null'), 'w') as f:
+              f.write(f"tasks={json.dumps(triggered_tasks)}\n")
+              f.write(f"count={len(triggered_tasks)}\n")
+          
+          print(f"\n共触发 {len(triggered_tasks)} 个任务")
+          EOF
+      
+      - name: Trigger OpenClaw Agents
+        if: steps.check.outputs.count > '0'
+        env:
+          OPENCLAW_API_URL: ${{ secrets.OPENCLAW_API_URL }}
+          TASKS: ${{ steps.check.outputs.tasks }}
+        run: |
+          python3 << 'EOF'
+          import requests
+          import json
+          import os
+          
+          tasks = json.loads(os.environ['TASKS'])
+          api_url = os.environ.get('OPENCLAW_API_URL', '')
+          
+          for task in tasks:
+              print(f"\n触发任务: {task['title']}")
+              print(f"  Agent: {task['agent']}")
+              print(f"  任务ID: {task['item_id']}")
+              
+              # 方式1: 调用 OpenClaw API
+              if api_url:
+                  payload = {
+                      "type": "github_project_task",
+                      "agent": task['agent'],
+                      "title": task['title'],
+                      "item_id": task['item_id'],
+                      "source": "github_actions"
+                  }
+                  try:
+                      response = requests.post(api_url, json=payload, timeout=10)
+                      print(f"  API 响应: {response.status_code}")
+                  except Exception as e:
+                      print(f"  API 调用失败: {e}")
+              
+              # 方式2: 输出任务信息（供后续步骤使用）
+              print(f"  任务数据: {json.dumps(task, ensure_ascii=False)}")
+          EOF
+      
+      - name: Update GitHub Status
+        if: steps.check.outputs.count > '0'
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          PROJECT_ID: ${{ secrets.PROJECT_ID }}
+          STATUS_FIELD_ID: ${{ secrets.STATUS_FIELD_ID }}
+          STATUS_IN_PROGRESS: "47fc9ee4"
+          TASKS: ${{ steps.check.outputs.tasks }}
+        run: |
+          python3 << 'EOF'
+          import requests
+          import json
+          import os
+          
+          GH_TOKEN = os.environ['GH_TOKEN']
+          PROJECT_ID = os.environ['PROJECT_ID']
+          STATUS_FIELD_ID = os.environ['STATUS_FIELD_ID']
+          STATUS_IN_PROGRESS = os.environ['STATUS_IN_PROGRESS']
+          tasks = json.loads(os.environ['TASKS'])
+          
+          GRAPHQL_URL = "https://api.github.com/graphql"
+          
+          headers = {
+              "Authorization": f"Bearer {GH_TOKEN}",
+              "Accept": "application/vnd.github+json",
+              "Content-Type": "application/json"
+          }
+          
+          mutation = """
+          mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
+            updateProjectV2ItemFieldValue(
+              input: {
+                projectId: $projectId
+                itemId: $itemId
+                fieldId: $fieldId
+                value: { singleSelectOptionId: $optionId }
+              }
+            ) {
+              projectV2Item {
+                id
+              }
+            }
+          }
+          """
+          
+          for task in tasks:
+              variables = {
+                  "projectId": PROJECT_ID,
+                  "itemId": task['item_id'],
+                  "fieldId": STATUS_FIELD_ID,
+                  "optionId": STATUS_IN_PROGRESS
+              }
+              
+              response = requests.post(GRAPHQL_URL, json={"query": mutation, "variables": variables}, headers=headers)
+              result = response.json()
+              
+              if "errors" in result:
+                  print(f"❌ {task['title']}: 状态更新失败")
+              else:
+                  print(f"✅ {task['title']}: 状态已更新为 In progress")
+          EOF

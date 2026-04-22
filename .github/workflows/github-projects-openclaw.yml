@@ -1,0 +1,74 @@
+name: GitHub Projects → OpenClaw
+
+on:
+  projects_v2_item:
+    types: [edited]
+
+jobs:
+  trigger-openclaw:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Parse Project Event
+        id: parse
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const item = context.payload.projects_v2_item;
+            
+            // 获取任务内容
+            const title = item.content?.title || '无标题';
+            const body = item.content?.body || '';
+            const itemId = item.id;
+            const nodeId = item.node_id;
+            
+            // 获取字段值
+            const fieldValues = item.field_values || [];
+            let agent = 'main';
+            let status = 'Unknown';
+            
+            for (const fv of fieldValues) {
+              const fieldName = fv.field?.name || '';
+              if (fieldName === 'Agent') {
+                agent = fv.name || 'main';
+              }
+              if (fieldName === 'Status') {
+                status = fv.name || 'Unknown';
+              }
+            }
+            
+            // 只处理状态变为 "In progress" 的情况
+            if (status !== 'In progress') {
+              console.log(`状态是 ${status}，跳过`);
+              core.setOutput('should_trigger', 'false');
+              return;
+            }
+            
+            core.setOutput('title', title);
+            core.setOutput('body', body);
+            core.setOutput('agent', agent);
+            core.setOutput('item_id', itemId);
+            core.setOutput('node_id', nodeId);
+            core.setOutput('project_id', context.payload.projects_v2_item?.project?.id || '');
+            core.setOutput('should_trigger', 'true');
+            
+            console.log(`✅ 任务触发`);
+            console.log(`   标题: ${title}`);
+            console.log(`   Agent: ${agent}`);
+            console.log(`   状态: ${status}`);
+      
+      - name: Send to OpenClaw via Feishu
+        if: steps.parse.outputs.should_trigger == 'true'
+        run: |
+          curl -X POST "https://open.feishu.cn/open-apis/message/v4/send/" \
+            -H "Authorization: Bearer ${{ secrets.FEISHU_BOT_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "chat_id": "${{ secrets.FEISHU_CHAT_ID }}",
+              "msg_type": "text",
+              "content": {
+                "text": "【GitHub Projects 任务触发】\n\n任务: ${{ steps.parse.outputs.title }}\nAgent: ${{ steps.parse.outputs.agent }}\n任务ID: ${{ steps.parse.outputs.item_id }}\n\n请执行此任务。"
+              }
+            }'
+        env:
+          FEISHU_BOT_TOKEN: ${{ secrets.FEISHU_BOT_TOKEN }}
+          FEISHU_CHAT_ID: ${{ secrets.FEISHU_CHAT_ID }}
