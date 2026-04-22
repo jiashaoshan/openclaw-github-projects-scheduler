@@ -74,103 +74,100 @@ crontab -e
 * * * * * /usr/bin/python3 /Users/jiashaoshan/task_scheduler.py --once >> /tmp/gh_scheduler.log 2>&1
 ```
 
-**步骤3：配置 Agent HEARTBEAT**
+**步骤3：配置主 Agent HEARTBEAT**
 
-修改各 Agent 的 `SKILLS.md`，添加任务检查逻辑：
+主 Agent（main）负责统一检查所有任务文件并分发给对应 Agent：
 
 ```markdown
-## HEARTBEAT 任务检查
+## HEARTBEAT 任务检查（主 Agent）
 
-检查 GitHub Projects 任务文件并执行：
+主 Agent 每分钟检查所有 Agent 的任务目录：
 
 ```python
 import os
 import json
 from pathlib import Path
+import subprocess
 
-def check_github_tasks():
-    """检查是否有待处理的任务"""
-    agent_name = "marketing"  # 修改为对应Agent名称
-    tasks_dir = Path(f"/tmp/gh_tasks/{agent_name}")
+def check_all_github_tasks():
+    """检查所有 Agent 的待处理任务"""
+    tasks_dir = Path("/tmp/gh_tasks")
+    triggered = []
     
-    if not tasks_dir.exists():
-        return None
-    
-    # 查找pending状态的任务文件
-    for task_file in tasks_dir.glob("*.json"):
-        try:
-            with open(task_file) as f:
-                task = json.load(f)
-            if task.get("status") == "pending":
-                return task
-        except:
+    for agent_dir in tasks_dir.iterdir():
+        if not agent_dir.is_dir() or agent_dir.name == "archive":
             continue
+        
+        agent_name = agent_dir.name
+        
+        for task_file in agent_dir.glob("*.json"):
+            try:
+                with open(task_file) as f:
+                    task = json.load(f)
+                
+                if task.get("status") == "pending":
+                    # 标记为处理中
+                    task["status"] = "processing"
+                    task["started_at"] = datetime.now().isoformat()
+                    with open(task_file, 'w') as f:
+                        json.dump(task, f)
+                    
+                    # 启动对应 Agent 执行任务
+                    sessions_spawn({
+                        "task": f"执行 GitHub Projects 任务: {task['title']}",
+                        "runtime": "subagent",
+                        "label": f"{agent_name}-github-task",
+                        "mode": "run"
+                    })
+                    
+                    triggered.append({
+                        "agent": agent_name,
+                        "title": task['title']
+                    })
+            except Exception as e:
+                print(f"处理任务失败: {task_file}, {e}")
     
-    return None
-
-def execute_task(task):
-    """执行任务"""
-    item_id = task["item_id"]
-    title = task["title"]
-    body = task["body"]
-    
-    # 1. 标记任务为处理中
-    mark_task_processing(item_id)
-    
-    # 2. 执行任务（调用对应技能）
-    result = do_actual_work(title, body)
-    
-    # 3. 更新GitHub状态
-    update_github_status(item_id, success=True)
-    
-    return result
+    return triggered
 
 # HEARTBEAT入口
-task = check_github_tasks()
-if task:
-    result = execute_task(task)
-    return f"完成任务: {task['title']}\n结果: {result}"
+tasks = check_all_github_tasks()
+if tasks:
+    return f"【任务调度】已分发 {len(tasks)} 个任务"
 else:
     return "HEARTBEAT_OK"
 ```
+
+**注意：** 只有主 Agent 配置 HEARTBEAT，子 Agent 不配置。
 ```
 
-### 3. 配置 Agent 任务执行
+### 3. 任务执行流程
 
-**Agent 执行流程：**
+```
+创建任务(Status=Todo, Start date=今天)
+    ↓ 调度器每分钟检查
+到达开始时间 → 创建任务文件 /tmp/gh_tasks/{agent}/task.json
+    ↓ 更新GitHub
+Status → In progress
+    ↓ 主 Agent HEARTBEAT检查
+发现任务 → 启动对应 Agent 子进程
+    ↓ Agent 执行
+完成任务 → 更新 GitHub 状态 → "Done"
+    ↓ 归档
+任务文件移动到 /tmp/gh_tasks/{agent}/archive/
+```
 
-1. **HEARTBEAT 检查任务文件**（零 Token）
-2. **有任务时读取任务信息**
-3. **标记任务为 processing**
-4. **调用对应技能执行任务**
-5. **更新 GitHub Projects 状态为 Done**
-6. **归档任务文件**
-
-**示例代码（Agent端）：**
+**Agent 执行完成后更新状态：**
 
 ```python
 import subprocess
-from pathlib import Path
 
-# 更新GitHub状态
+# Agent 执行完成后调用，更新 GitHub 状态
 def update_github_status(item_id: str, success: bool = True):
     scheduler_path = "~/.openclaw/workspace/skills/github-projects/task_scheduler_v2.py"
     action = "--complete" if success else "--fail"
     subprocess.run([
         "python3", scheduler_path, action, item_id, "--agent", "marketing"
     ])
-
-# 标记任务处理中
-def mark_task_processing(item_id: str):
-    task_file = Path(f"/tmp/gh_tasks/marketing/{item_id.replace(':', '_')}.json")
-    if task_file.exists():
-        import json
-        with open(task_file) as f:
-            task = json.load(f)
-        task["status"] = "processing"
-        task["started_at"] = datetime.now().isoformat()
-        with open(task_file, 'w') as f:
-            json.dump(task, f)
 ```
 
 ---
