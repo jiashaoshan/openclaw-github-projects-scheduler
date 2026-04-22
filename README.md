@@ -70,8 +70,8 @@ chmod +x ~/task_scheduler.py
 # 编辑 crontab
 crontab -e
 
-# 添加以下行（每分钟执行一次）
-* * * * * /usr/bin/python3 /Users/jiashaoshan/task_scheduler.py --once >> /tmp/gh_scheduler.log 2>&1
+# 添加以下行（每分钟执行一次，需设置 GH_TOKEN）
+* * * * * export GH_TOKEN="ghp_your_github_token_here"; /usr/bin/python3 /Users/jiashaoshan/task_scheduler.py --once >> /tmp/gh_scheduler.log 2>&1
 ```
 
 **步骤3：配置主 Agent HEARTBEAT**
@@ -293,7 +293,10 @@ python3 ~/task_scheduler_v2.py --complete PVTI_xxx --agent marketing
 |------|------|
 | `task_scheduler_v2.py` | 主调度器（零Token） |
 | `monitor_scheduler.py` | 运维监控脚本 |
+| `AGENTS.md` | 主 Agent 配置（含 HEARTBEAT 逻辑） |
+| `HEARTBEAT.md` | OpenClaw HEARTBEAT 配置 |
 | `README.md` | 本文档 |
+| `ai-team/*/SKILLS.md` | 各 Agent 技能路由配置 |
 | `/tmp/gh_tasks/{agent}/` | 任务文件目录 |
 | `/tmp/gh_scheduler.log` | 调度器日志 |
 
@@ -353,21 +356,30 @@ python3 ~/task_scheduler_v2.py --complete PVTI_xxx --agent marketing
                           │
                           ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                    Agent HEARTBEAT                           │
-│  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐          │
-│  │  marketing  │ │   content   │ │     dev     │          │
-│  │  检查文件   │ │   检查文件   │ │   检查文件   │          │
-│  │  (零Token)  │ │  (零Token)  │ │  (零Token)  │          │
-│  └──────┬──────┘ └──────┬──────┘ └──────┬──────┘          │
-│         │               │               │                  │
-│         └───────────────┴───────────────┘                  │
+│                    主 Agent HEARTBEAT                        │
+│                    (main - 统一调度)                         │
+│                          │                                  │
+│                          ▼                                  │
+│              ┌──────────────────────┐                      │
+│              │   检查所有任务文件    │                      │
+│              │   /tmp/gh_tasks/*    │                      │
+│              │   (零Token)          │                      │
+│              └──────────┬───────────┘                      │
 │                         │                                  │
 │                         ▼                                  │
 │              ┌──────────────────────┐                      │
 │              │   有任务?            │                      │
-│              │   - 是: 执行(消耗Token)│                      │
+│              │   - 是: 分发到对应Agent │                   │
 │              │   - 否: HEARTBEAT_OK │                      │
-│              └──────────────────────┘                      │
+│              └──────────┬───────────┘                      │
+│                         │                                  │
+│         ┌───────────────┼───────────────┐                  │
+│         ▼               ▼               ▼                  │
+│  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐          │
+│  │  marketing  │ │   content   │ │     dev     │          │
+│  │  执行任务   │ │   执行任务   │ │   执行任务   │          │
+│  │  (消耗Token)│ │  (消耗Token)│ │  (消耗Token)│          │
+│  └─────────────┘ └─────────────┘ └─────────────┘          │
 └─────────────────────────────────────────────────────────────┘
                           │
                           ▼
