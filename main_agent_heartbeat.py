@@ -16,12 +16,10 @@
 """
 
 import json
+import subprocess
 import sys
 from pathlib import Path
 from datetime import datetime
-
-# 添加 workspace 到路径以导入 sessions_spawn
-sys.path.insert(0, "/Users/jiashaoshan/.openclaw/workspace")
 
 def log_message(msg: str):
     """记录日志到文件"""
@@ -37,15 +35,51 @@ def log_message(msg: str):
     
     print(log_entry)
 
+def spawn_agent(agent_name: str, task: dict):
+    """使用 openclaw CLI 启动子 Agent 执行任务"""
+    try:
+        # 构建任务消息
+        task_message = f"""执行 GitHub Projects 任务
+
+任务标题: {task['title']}
+任务描述: {task['body']}
+任务ID: {task['item_id']}
+
+请按以下步骤执行：
+1. 读取 ~/.openclaw/workspace/ai-team/{agent_name}/SKILLS.md
+2. 根据任务描述找到匹配的技能路由
+3. 调用对应技能完成任务
+4. 执行完成后更新 GitHub 状态：
+   python3 ~/.openclaw/workspace/skills/github-projects/task_scheduler_v2.py --complete {task['item_id']} --agent {agent_name}
+5. 在群里汇报结果（使用自己的飞书Bot账号）
+"""
+        
+        # 使用 openclaw agent 命令启动子 Agent
+        # 注意：这里使用 --to 指定目标，实际使用时可能需要调整
+        cmd = [
+            "openclaw", "agent",
+            "--message", task_message,
+            "--timeout", "300"  # 5分钟超时
+        ]
+        
+        log_message(f"启动 Agent [{agent_name}] 执行任务: {task['title'][:30]}...")
+        
+        # 异步启动子进程
+        subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True  # 独立进程组
+        )
+        
+        return True
+        
+    except Exception as e:
+        log_message(f"启动 Agent 失败: {e}")
+        return False
+
 def check_github_project_tasks():
     """检查 GitHub Projects 任务文件并分发"""
-    try:
-        # 延迟导入，避免模块未找到时崩溃
-        from sessions_spawn import sessions_spawn
-    except ImportError:
-        log_message("错误: 无法导入 sessions_spawn 模块")
-        return None, "模块导入失败"
-    
     tasks_dir = Path("/tmp/gh_tasks")
     triggered = []
     
@@ -75,33 +109,13 @@ def check_github_project_tasks():
                     json.dump(task, f)
                 
                 # 启动对应 Agent 执行任务
-                sessions_spawn({
-                    "task": f"""执行 GitHub Projects 任务
-
-任务标题: {task['title']}
-任务描述: {task['body']}
-任务ID: {task['item_id']}
-
-请按以下步骤执行：
-1. 读取 ~/.openclaw/workspace/ai-team/{agent_name}/SKILLS.md
-2. 根据任务描述找到匹配的技能路由
-3. 调用对应技能完成任务
-4. 执行完成后更新 GitHub 状态：
-   python3 ~/.openclaw/workspace/skills/github-projects/task_scheduler_v2.py --complete {task['item_id']} --agent {agent_name}
-5. 在群里汇报结果（使用自己的飞书Bot账号）
-""",
-                    "runtime": "subagent",
-                    "label": f"{agent_name}-github-task",
-                    "mode": "run"
-                })
-                
-                triggered.append({
-                    "agent": agent_name,
-                    "title": task['title'],
-                    "item_id": task['item_id']
-                })
-                
-                log_message(f"已分发任务: [{agent_name}] {task['title'][:50]}...")
+                if spawn_agent(agent_name, task):
+                    triggered.append({
+                        "agent": agent_name,
+                        "title": task['title'],
+                        "item_id": task['item_id']
+                    })
+                    log_message(f"已分发任务: [{agent_name}] {task['title'][:50]}...")
                 
             except Exception as e:
                 log_message(f"处理任务文件失败: {task_file}, {e}")
