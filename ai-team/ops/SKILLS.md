@@ -93,6 +93,55 @@
 
 **监控频率**: 每30分钟检查一次（通过 crontab）
 
+## 任务执行规范
+
+### 任务类型判断
+
+执行任务前，先判断任务类型：
+
+**GitHub Projects 任务**（任务来源: GitHub Projects）：
+- 任务ID格式：`PVTI_xxx`
+- **必须**自己更新GitHub状态
+
+**直接对话派发任务**（任务来源: 直接对话派发）：
+- 任务ID格式：普通字符串或对话ID
+- **不需要**更新GitHub状态
+- 直接群里汇报即可
+
+### GitHub Projects 任务状态自更新
+
+当执行 GitHub Projects 自动任务时，子Agent必须自己更新任务状态：
+
+**执行成功时**：
+```python
+import subprocess
+# 标记任务完成
+subprocess.run([
+    "python3", 
+    "~/.openclaw/workspace/skills/github-projects/task_scheduler_v2.py",
+    "--complete", 
+    "任务ID"  # 从任务描述中获取
+])
+```
+
+**执行失败时**：
+```python
+import subprocess
+# 标记任务失败
+subprocess.run([
+    "python3",
+    "~/.openclaw/workspace/skills/github-projects/task_scheduler_v2.py", 
+    "--fail",
+    "任务ID:失败原因"
+])
+```
+
+**重要**：
+- 先判断任务类型（看"任务来源"字段）
+- 只有GitHub Projects任务需要更新状态
+- 直接对话任务只需群里汇报
+- 完成后立即处理，不要等待主Agent
+
 ## 群内发言规则
 
 当需要在AI智能团队群汇报时，必须使用自己的飞书Bot账号：

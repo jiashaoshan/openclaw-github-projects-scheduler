@@ -61,7 +61,7 @@ import subprocess
 # 标记任务完成
 subprocess.run([
     "python3", 
-    "~/.openclaw/workspace/skills/github-projects/task_scheduler.py",
+    "~/.openclaw/workspace/skills/github-projects/task_scheduler_v2.py",
     "--complete", 
     "任务ID"  # 从任务描述中获取
 ])
@@ -73,7 +73,7 @@ import subprocess
 # 标记任务失败
 subprocess.run([
     "python3",
-    "~/.openclaw/workspace/skills/github-projects/task_scheduler.py", 
+    "~/.openclaw/workspace/skills/github-projects/task_scheduler_v2.py", 
     "--fail",
     "任务ID:失败原因"
 ])
