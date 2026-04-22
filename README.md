@@ -259,13 +259,13 @@ cat /tmp/gh_tasks/marketing/*.json
 
 ### 手动触发检查
 ```bash
-python3 ~/task_scheduler.py --verbose --once
+python3 ~/task_scheduler_v2.py --verbose --once
 ```
 
 ### 手动标记任务完成
 ```bash
 # Agent执行完成后调用
-python3 ~/task_scheduler.py --complete PVTI_xxx --agent marketing
+python3 ~/task_scheduler_v2.py --complete PVTI_xxx --agent marketing
 ```
 
 ---
@@ -276,7 +276,7 @@ python3 ~/task_scheduler.py --complete PVTI_xxx --agent marketing
 1. 检查 crontab 配置：`crontab -l`
 2. 检查日志：`tail /tmp/gh_scheduler.log`
 3. 检查 GH_TOKEN 环境变量
-4. 手动测试：`python3 ~/task_scheduler.py --verbose --once`
+4. 手动测试：`python3 ~/task_scheduler_v2.py --verbose --once`
 
 ### Agent 不执行任务
 1. 检查任务文件是否存在：`ls /tmp/gh_tasks/{agent}/`
