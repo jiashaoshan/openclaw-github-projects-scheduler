@@ -106,7 +106,82 @@ python3 ~/.openclaw/workspace/skills/github-projects/main_agent_heartbeat.py
 
 **注意：** 只有主 Agent 配置 HEARTBEAT，子 Agent 不配置。
 
-### 3. 任务执行流程
+### 4. 配置 OpenClaw Cron 定时任务
+
+OpenClaw 通过 `~/.openclaw/cron/jobs.json` 管理定时任务，需要添加 GitHub Projects 任务调度任务：
+
+**方法：使用 Python 脚本添加**
+
+```python
+import json
+import uuid
+import time
+
+# 读取现有 jobs
+with open('/Users/jiashaoshan/.openclaw/cron/jobs.json', 'r') as f:
+    data = json.load(f)
+
+# 创建新的 GitHub Projects 任务调度 job
+new_job = {
+    "id": str(uuid.uuid4()),
+    "agentId": "main",
+    "sessionKey": "agent:main:main",
+    "name": "GitHub Projects 任务调度",
+    "enabled": True,
+    "createdAtMs": int(time.time() * 1000),
+    "updatedAtMs": int(time.time() * 1000),
+    "schedule": {
+        "kind": "cron",
+        "expr": "* * * * *",  # 每分钟执行
+        "tz": "Asia/Shanghai"
+    },
+    "sessionTarget": "isolated",
+    "wakeMode": "now",
+    "payload": {
+        "kind": "agentTurn",
+        "message": "执行 GitHub Projects 任务调度脚本：python3 ~/.openclaw/workspace/skills/github-projects/main_agent_heartbeat.py",
+        "timeoutSeconds": 60
+    },
+    "delivery": {
+        "mode": "none"  # 不发送消息，静默执行
+    },
+    "state": {
+        "nextRunAtMs": 0,
+        "lastRunAtMs": 0,
+        "consecutiveErrors": 0
+    }
+}
+
+# 添加到 jobs 列表
+data['jobs'].append(new_job)
+
+# 写回文件
+with open('/Users/jiashaoshan/.openclaw/cron/jobs.json', 'w') as f:
+    json.dump(data, f, indent=2)
+
+print(f"已添加定时任务: {new_job['id']}")
+print(f"任务名称: {new_job['name']}")
+print(f"执行周期: {new_job['schedule']['expr']} (每分钟)")
+```
+
+**验证定时任务：**
+
+```bash
+# 查看所有定时任务
+cat ~/.openclaw/cron/jobs.json | python3 -c "import json,sys; data=json.load(sys.stdin); [print(f'{j[\"name\"]}: {j[\"schedule\"][\"expr\"]} - enabled:{j[\"enabled\"]}') for j in data['jobs']]"
+```
+
+**查看执行日志：**
+
+```bash
+# 主 Agent HEARTBEAT 日志
+tail -f /tmp/main_agent_heartbeat.log
+
+# 调度器日志
+tail -f /tmp/gh_scheduler.log
+```
+
+### 5. 任务执行流程
 
 ```
 创建任务(Status=Todo, Start date=今天)
