@@ -70,11 +70,23 @@ def check_github_project_tasks():
     
     return triggered
 
+# 记录执行日志
+def log_heartbeat(result):
+    """记录 HEARTBEAT 执行日志"""
+    from datetime import datetime
+    log_file = "/tmp/main_agent_heartbeat.log"
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with open(log_file, "a") as f:
+        f.write(f"[{timestamp}] {result}\n")
+
 # HEARTBEAT 入口
 tasks = check_github_project_tasks()
 if tasks:
-    return f"【任务调度】已分发 {len(tasks)} 个任务:\n" + "\n".join([f"- [{t['agent']}] {t['title'][:30]}..." for t in tasks])
+    result = f"【任务调度】已分发 {len(tasks)} 个任务:\n" + "\n".join([f"- [{t['agent']}] {t['title'][:30]}..." for t in tasks])
+    log_heartbeat(result)
+    return result
 else:
+    log_heartbeat("HEARTBEAT_OK")
     return "HEARTBEAT_OK"
 ```
 
