@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any
 
 # ============ 配置 ============
-GH_TOKEN = os.environ.get("GH_TOKEN", "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")
+GH_TOKEN = os.environ.get("GH_TOKEN", "")
 PROJECT_ID = "PVT_kwHOABOkaM4BVDrk"
 STATUS_FIELD_ID = "PVTSSF_lAHOABOkaM4BVDrkzhQiE3c"
 
