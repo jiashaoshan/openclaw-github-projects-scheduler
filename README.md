@@ -78,33 +78,82 @@ crontab -e
 
 主 Agent（main）负责统一检查所有任务文件并分发给对应 Agent。
 
-**方法：使用独立脚本（推荐）**
+**方法：在 HEARTBEAT.md 中直接编写代码**
 
-1. **创建 HEARTBEAT.md**（在 workspace 根目录）：
+1. **创建/编辑 HEARTBEAT.md**（在 workspace 根目录 `~/.openclaw/workspace/HEARTBEAT.md`）：
 
 ```markdown
 # HEARTBEAT.md - GitHub Projects 任务调度
 
 ## GitHub Projects 任务调度（每分钟检查）
 
-调用独立脚本检查任务：
+```python
+import json
+from pathlib import Path
+from sessions_spawn import sessions_spawn
+from datetime import datetime
 
-```bash
-python3 ~/.openclaw/workspace/skills/github-projects/main_agent_heartbeat.py
+def check_github_project_tasks():
+    """检查 GitHub Projects 任务文件并分发"""
+    tasks_dir = Path("/tmp/gh_tasks")
+    triggered = []
+    
+    if not tasks_dir.exists():
+        return None, "无任务目录"
+    
+    # 遍历所有 Agent 的任务目录
+    for agent_dir in tasks_dir.iterdir():
+        if not agent_dir.is_dir() or agent_dir.name == "archive":
+            continue
+        
+        agent_name = agent_dir.name
+        
+        # 查找 pending 状态的任务
+        for task_file in agent_dir.glob("*.json"):
+            try:
+                with open(task_file) as f:
+                    task = json.load(f)
+                
+                if task.get("status") != "pending":
+                    continue
+                
+                # 标记为 processing
+                task["status"] = "processing"
+                task["started_at"] = datetime.now().isoformat()
+                with open(task_file, 'w') as f:
+                    json.dump(task, f)
+                
+                # 启动对应 Agent 执行任务
+                sessions_spawn({
+                    "task": f"执行 GitHub Projects 任务: {task['title']}",
+                    "runtime": "subagent",
+                    "label": f"{agent_name}-github-task",
+                    "mode": "run"
+                })
+                
+                triggered.append({
+                    "agent": agent_name,
+                    "title": task['title']
+                })
+            except Exception as e:
+                print(f"处理任务失败: {e}")
+    
+    return triggered
+
+# HEARTBEAT 入口
+tasks = check_github_project_tasks()
+if tasks:
+    return f"【任务调度】已分发 {len(tasks)} 个任务"
+else:
+    return "HEARTBEAT_OK"
+```
 ```
 
-脚本功能：
-- 检查 `/tmp/gh_tasks/` 目录下的任务文件
-- 发现 pending 任务时，标记为 processing
-- 通过 `sessions_spawn` 启动对应 Agent 执行任务
-- 记录执行日志到 `/tmp/main_agent_heartbeat.log`
-```
-
-2. **脚本位置**：
-   - `~/.openclaw/workspace/skills/github-projects/main_agent_heartbeat.py`
-   - 已包含在仓库中，无需额外配置
-
-**注意：** 只有主 Agent 配置 HEARTBEAT，子 Agent 不配置。
+**注意：**
+- 代码直接写在 HEARTBEAT.md 中，OpenClaw 会在执行时解析
+- `sessions_spawn` 是 OpenClaw 内置函数，用于启动子 Agent
+- 只有主 Agent 配置 HEARTBEAT，子 Agent 不配置
+- 日志会自动记录到 `/tmp/main_agent_heartbeat.log`
 
 ### 4. 配置 OpenClaw Cron 定时任务
 
