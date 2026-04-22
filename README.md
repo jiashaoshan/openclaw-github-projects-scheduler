@@ -172,6 +172,92 @@ def update_github_status(item_id: str, success: bool = True):
 
 ---
 
+## 子 Agent 任务执行规范
+
+每个子 Agent 的 `SKILLS.md` 必须包含以下规范：
+
+### 1. 任务类型判断
+
+```markdown
+### 任务类型判断
+
+执行任务前，先判断任务类型：
+
+**GitHub Projects 任务**（任务来源: GitHub Projects）：
+- 任务ID格式：`PVTI_xxx`
+- **必须**自己更新GitHub状态
+
+**直接对话派发任务**（任务来源: 直接对话派发）：
+- 任务ID格式：普通字符串或对话ID
+- **不需要**更新GitHub状态
+- 直接群里汇报即可
+```
+
+### 2. GitHub Projects 任务状态自更新
+
+```markdown
+### GitHub Projects 任务状态自更新
+
+当执行 GitHub Projects 自动任务时，子Agent必须自己更新任务状态：
+
+**执行成功时**：
+```python
+import subprocess
+# 标记任务完成
+subprocess.run([
+    "python3", 
+    "~/.openclaw/workspace/skills/github-projects/task_scheduler_v2.py",
+    "--complete", 
+    "任务ID"  # 从主Agent派发的任务描述中获取
+])
+```
+
+**执行失败时**：
+```python
+import subprocess
+# 标记任务失败
+subprocess.run([
+    "python3",
+    "~/.openclaw/workspace/skills/github-projects/task_scheduler_v2.py", 
+    "--fail",
+    "任务ID:失败原因"
+])
+```
+
+**重要**：
+- 先判断任务类型（看"任务来源"字段）
+- 只有GitHub Projects任务需要更新状态
+- 直接对话任务只需群里汇报
+- 完成后立即处理，不要等待主Agent
+```
+
+### 3. 群内发言规则
+
+```markdown
+### 群内发言规则
+
+当需要在AI智能团队群汇报时，必须使用自己的飞书Bot账号：
+
+**调用方式**：
+```javascript
+message({
+  accountId: "agent_name",  // 必须指定：如 dev, marketing 等
+  action: "send",
+  channel: "feishu",
+  target: "oc_1d05adec7a7ee7b58bf89b9ecc718378",
+  message: "【Agent名称】汇报内容..."
+})
+```
+
+**关键要求**：
+- 必须指定 accountId 为自己的 agent ID
+- 消息开头标注身份【Agent名称】
+- 先更新GitHub状态，再发群消息
+- 同时返回完整结果给主Agent
+```
+
+---
+
 ## 详细配置
 
 ### GitHub Projects 字段配置
