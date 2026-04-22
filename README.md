@@ -76,69 +76,35 @@ crontab -e
 
 **步骤3：配置主 Agent HEARTBEAT**
 
-主 Agent（main）负责统一检查所有任务文件并分发给对应 Agent：
+主 Agent（main）负责统一检查所有任务文件并分发给对应 Agent。
+
+**方法：使用独立脚本（推荐）**
+
+1. **创建 HEARTBEAT.md**（在 workspace 根目录）：
 
 ```markdown
-## HEARTBEAT 任务检查（主 Agent）
+# HEARTBEAT.md - GitHub Projects 任务调度
 
-主 Agent 每分钟检查所有 Agent 的任务目录：
+## GitHub Projects 任务调度（每分钟检查）
 
-```python
-import os
-import json
-from pathlib import Path
-import subprocess
+调用独立脚本检查任务：
 
-def check_all_github_tasks():
-    """检查所有 Agent 的待处理任务"""
-    tasks_dir = Path("/tmp/gh_tasks")
-    triggered = []
-    
-    for agent_dir in tasks_dir.iterdir():
-        if not agent_dir.is_dir() or agent_dir.name == "archive":
-            continue
-        
-        agent_name = agent_dir.name
-        
-        for task_file in agent_dir.glob("*.json"):
-            try:
-                with open(task_file) as f:
-                    task = json.load(f)
-                
-                if task.get("status") == "pending":
-                    # 标记为处理中
-                    task["status"] = "processing"
-                    task["started_at"] = datetime.now().isoformat()
-                    with open(task_file, 'w') as f:
-                        json.dump(task, f)
-                    
-                    # 启动对应 Agent 执行任务
-                    sessions_spawn({
-                        "task": f"执行 GitHub Projects 任务: {task['title']}",
-                        "runtime": "subagent",
-                        "label": f"{agent_name}-github-task",
-                        "mode": "run"
-                    })
-                    
-                    triggered.append({
-                        "agent": agent_name,
-                        "title": task['title']
-                    })
-            except Exception as e:
-                print(f"处理任务失败: {task_file}, {e}")
-    
-    return triggered
-
-# HEARTBEAT入口
-tasks = check_all_github_tasks()
-if tasks:
-    return f"【任务调度】已分发 {len(tasks)} 个任务"
-else:
-    return "HEARTBEAT_OK"
+```bash
+python3 ~/.openclaw/workspace/skills/github-projects/main_agent_heartbeat.py
 ```
+
+脚本功能：
+- 检查 `/tmp/gh_tasks/` 目录下的任务文件
+- 发现 pending 任务时，标记为 processing
+- 通过 `sessions_spawn` 启动对应 Agent 执行任务
+- 记录执行日志到 `/tmp/main_agent_heartbeat.log`
+```
+
+2. **脚本位置**：
+   - `~/.openclaw/workspace/skills/github-projects/main_agent_heartbeat.py`
+   - 已包含在仓库中，无需额外配置
 
 **注意：** 只有主 Agent 配置 HEARTBEAT，子 Agent 不配置。
-```
 
 ### 3. 任务执行流程
 
