@@ -337,7 +337,7 @@ export GH_TOKEN="ghp_your_token"  # GitHub Token（必填）
 ```
 **执行Agent**: [你的Agent名称]
 **接收时间**: 2026-XX-XX XX:XX:XX
-**任务名称**: 【任务名称】
+**任务名称**: [任务名称]
 **任务摘要**
 任务概要描述
 ```
