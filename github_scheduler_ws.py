@@ -73,6 +73,9 @@ AGENT_OPTIONS = {
 DEFAULT_WS_URL = "ws://127.0.0.1:18789"
 DEFAULT_GATEWAY_TOKEN = os.getenv("OPENCLAW_GATEWAY_TOKEN", "")
 
+# 飞书群配置（AI智能团队群）
+FEISHU_CHAT_ID = "oc_xxx"  # 需要替换为实际群ID
+
 VERBOSE = False
 
 # ============ 日志 ============
@@ -80,6 +83,26 @@ def log(msg: str, force: bool = False):
     if VERBOSE or force:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         print(f"[{timestamp}] {msg}", flush=True)
+
+
+# ============ 飞书群汇报 ============
+def send_group_message(content: str):
+    """发送群消息到飞书"""
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["openclaw", "message", "send", "--channel", "feishu",
+             "--target", f"chat:{FEISHU_CHAT_ID}", "--message", content],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        if result.returncode == 0:
+            log(f"群消息发送成功")
+        else:
+            log(f"群消息发送失败: {result.stderr}")
+    except Exception as e:
+        log(f"发送群消息异常: {e}")
 
 
 # ============ OpenClaw WebSocket 客户端 ============
@@ -484,6 +507,9 @@ async def check_and_trigger_tasks():
     
     log(f"发现 {len(pending_tasks)} 个待处理任务")
     
+    # 【汇报1】调度器启动 - 发现有任务，在群里汇报
+    send_group_message(f"🤖 【调度器启动】发现 {len(pending_tasks)} 个待处理任务，开始调度执行...")
+    
     # 连接WebSocket
     client = OpenClawGatewayClient()
     if not await client.connect():
@@ -537,6 +563,31 @@ async def check_and_trigger_tasks():
                 failed += 1
     finally:
         await client.close()
+    
+    # 【汇报2】执行完成 - 在群里汇报执行结果
+    if triggered > 0 or failed > 0:
+        # 构建任务执行摘要
+        task_summary = []
+        for i, task in enumerate(pending_tasks[:5], 1):  # 最多显示5个
+            status_icon = "✅" if i <= triggered else "❌"
+            task_summary.append(f"{status_icon} [{task['agent']}] {task['title'][:30]}...")
+        
+        if len(pending_tasks) > 5:
+            task_summary.append(f"... 还有 {len(pending_tasks) - 5} 个任务")
+        
+        summary_text = "\n".join(task_summary)
+        
+        send_group_message(f"""📋 【任务调度完成】
+
+本次调度统计：
+• 发现任务：{len(pending_tasks)} 个
+• 成功执行：{triggered} 个
+• 执行失败：{failed} 个
+
+任务执行清单：
+{summary_text}
+
+⏳ 各 Agent 正在执行中，完成后将分别汇报结果...""")
     
     log(f"\n本次检查完成: 成功 {triggered} 个, 失败 {failed} 个")
     log("="*60)

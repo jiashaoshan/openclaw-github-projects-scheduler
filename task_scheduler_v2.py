@@ -58,12 +58,34 @@ AGENT_OPTIONS = {
 TASKS_DIR = Path("/tmp/gh_tasks")
 STATE_FILE = "/tmp/gh_scheduler_state.json"
 
+# 飞书群配置（AI智能团队群）
+FEISHU_CHAT_ID = "oc_xxx"  # 需要替换为实际群ID
+
 VERBOSE = False
 
 def log(msg: str, force: bool = False):
     if VERBOSE or force:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         print(f"[{timestamp}] {msg}", flush=True)
+
+
+def send_group_message(content: str):
+    """发送群消息到飞书"""
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["openclaw", "message", "send", "--channel", "feishu",
+             "--target", f"chat:{FEISHU_CHAT_ID}", "--message", content],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        if result.returncode == 0:
+            log(f"群消息发送成功")
+        else:
+            log(f"群消息发送失败: {result.stderr}")
+    except Exception as e:
+        log(f"发送群消息异常: {e}")
 
 # ============ GitHub API ============
 
@@ -304,6 +326,7 @@ def check_and_trigger_tasks():
     items = get_project_items()
     
     triggered = 0
+    pending_tasks = []  # 用于记录本次创建的任务
     
     for item in items:
         item_id = item["id"]
@@ -342,10 +365,25 @@ def check_and_trigger_tasks():
         body = item.get("body", "")
         if create_task_file(agent, title, body, item_id):
             triggered += 1
+            pending_tasks.append({"agent": agent, "title": title})
             log(f"✅ 已创建任务文件: [{agent}] {title[:40]}...")
         else:
             # 创建失败，回滚状态
             update_item_status(item_id, STATUS_TODO)
+    
+    # 【群汇报】有任务时才汇报
+    if triggered > 0:
+        # 构建任务清单
+        task_list = "\n".join([f"• [{t['agent']}] {t['title'][:40]}..." for t in pending_tasks[:5]])
+        if len(pending_tasks) > 5:
+            task_list += f"\n... 还有 {len(pending_tasks) - 5} 个任务"
+        
+        send_group_message(f"""🤖 【调度器启动】发现 {triggered} 个新任务
+
+任务清单：
+{task_list}
+
+⏳ 任务文件已创建，等待 Agent 执行...""")
     
     log(f"\n本次检查完成: 触发 {triggered} 个任务")
     log("="*60)
