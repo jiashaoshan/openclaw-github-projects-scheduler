@@ -90,7 +90,14 @@ cp ~/.openclaw/workspace/skills/github-projects/github_scheduler_ws.py ~/github_
 chmod +x ~/github_scheduler.py
 ```
 
-**步骤2：配置系统 crontab**
+**步骤2：配置飞书群ID**
+编辑 `github_scheduler_ws.py`，设置实际的群ID：
+```python
+# 飞书群配置（AI智能团队群）
+FEISHU_CHAT_ID = "oc_xxxxxxxxxxxxxxxx"  # 替换为实际群ID
+```
+
+**步骤3：配置系统 crontab**
 ```bash
 # 编辑 crontab
 crontab -e
@@ -99,7 +106,7 @@ crontab -e
 * * * * * export GH_TOKEN="ghp_your_github_token_here"; /usr/bin/python3 /Users/jiashaoshan/github_scheduler.py --once >> /tmp/gh_scheduler_ws.log 2>&1
 ```
 
-**步骤3：测试 WebSocket 连接**
+**步骤4：测试 WebSocket 连接**
 ```bash
 # 测试 OpenClaw Gateway 连接
 python3 github_scheduler_ws.py --test-connection --verbose
@@ -145,17 +152,28 @@ python3 github_scheduler_ws.py --once --verbose
    ├── github_scheduler_ws.py 纯Python执行
    ├── 检查 Start date 是否到达
    ├── 更新 GitHub 状态 → "In progress"
-   └── WebSocket连接到 OpenClaw Gateway
+   ├── WebSocket连接到 OpenClaw Gateway
+   └── 【群汇报】发送「调度器启动」通知（有任务时）
             ↓
 3. 直接调用 Agent
    ├── 调用 sessions.create(agentId="xxx", message="任务内容")
    ├── 实时接收Agent流式回复
    ├── 等待任务执行完成
-   └── 更新 GitHub 状态 → "Done"
+   └── Agent 自行更新 GitHub 状态 → "Done/Failed"
             ↓
-4. 清理
+4. 执行完成
+   ├── 【群汇报】发送「任务调度完成」汇总
+   ├── 成功数/失败数统计
+   └── 任务清单展示
+            ↓
+5. 清理
    └── 关闭WebSocket连接
 ```
+
+**汇报规则：**
+- ✅ 有任务时：发送「调度器启动」+「任务调度完成」
+- ✅ 无任务时：静默执行，不发送消息
+- ✅ Agent 执行完成后：各自在群里汇报结果
 
 ---
 
@@ -173,49 +191,18 @@ python3 github_scheduler_ws.py --once --verbose
 
 ---
 
-## Agent 技能路由配置
+## 各 Agent 任务行为规范
 
-每个 Agent 的 `SKILLS.md` 定义了任务执行规范和技能调用规则。
+每个 Agent 的 `SKILLS.md` 文件必须包含「任务执行规范」章节，定义 GitHub Projects 任务的执行和汇报规则。
 
-### 示例：内容创作 Agent
+### 任务执行规范（必须包含）
+
+在每个 Agent 的 `~/.openclaw/workspace/ai-team/{agent}/SKILLS.md` 中添加：
 
 ```markdown
-# 内容创作 - 技能路由规则
+## 任务执行规范
 
-## 你是谁
-你是AI智能团队的**内容创作专员**。
-
-## 你的技能
-
-### 公众号文章（⚠️ 重要）
-**触发条件**: 用户需要公众号文章、发微信公众号
-**必须调用**: `wechat-prompt-context` 技能
-**禁止**: 直接生成！
-
-**执行命令**:
-```bash
-node ~/.openclaw/workspace/skills/wechat-prompt-context/scripts/main.js \
-  --topic="{文章主题}" \
-  --auto-confirm
-```
-
-**执行流程**:
-1. 确认文章主题
-2. 执行上述命令
-3. 等待技能完成（约8分钟）
-4. 返回文章链接和封面图
-
-### 小红书文案
-**触发条件**: 用户需要小红书文案、小红书笔记
-**调用方式**: 直接生成
-
-**执行流程**:
-1. 分析主题
-2. 直接生成小红书风格文案
-3. 包含：标题（带emoji）、正文（分点+emoji）、hashtag
-```
-
-### 任务执行规范
+### 任务类型判断
 
 执行任务前，先判断任务类型：
 
@@ -240,7 +227,9 @@ subprocess.run([
     "python3", 
     "~/.openclaw/workspace/skills/github-projects/task_scheduler_v2.py",
     "--complete", 
-    "任务ID"  # 从任务描述中获取
+    "任务ID",  # 从任务描述中获取
+    "--agent",
+    "你的agent名称"  # dev/content/marketing等
 ])
 ```
 
@@ -252,7 +241,9 @@ subprocess.run([
     "python3",
     "~/.openclaw/workspace/skills/github-projects/task_scheduler_v2.py", 
     "--fail",
-    "任务ID:失败原因"
+    "任务ID:失败原因",
+    "--agent",
+    "你的agent名称"
 ])
 ```
 
@@ -269,19 +260,31 @@ subprocess.run([
 **调用方式**：
 ```javascript
 message({
-  accountId: "content",  // 必须指定：content
+  accountId: "你的agent名称",  // 必须指定：dev/content/marketing等
   action: "send",
   channel: "feishu",
   target: "oc_xxx",  // 群ID
-  message: "【内容创作】汇报内容..."
+  message: "【你的身份】汇报内容..."
 })
 ```
 
 **关键要求**：
 - 必须指定 accountId 为自己的 agent ID
-- 消息开头标注身份【内容创作】
+- 消息开头标注身份【开发】/【内容创作】等
 - 先更新GitHub状态，再发群消息
 - 同时返回完整结果给主Agent
+```
+
+### 参考实现
+
+查看各 Agent 的 SKILLS.md 文件：
+- `ai-team/dev/SKILLS.md` - 开发 Agent 规范
+- `ai-team/content/SKILLS.md` - 内容创作 Agent 规范
+- `ai-team/marketing/SKILLS.md` - 市场营销 Agent 规范
+- `ai-team/consultant/SKILLS.md` - 咨询顾问 Agent 规范
+- `ai-team/finance/SKILLS.md` - 财务 Agent 规范
+- `ai-team/operations/SKILLS.md` - 客户运营 Agent 规范
+- `ai-team/ops/SKILLS.md` - 运维 Agent 规范
 
 ---
 
@@ -309,6 +312,12 @@ message({
 
 ## 更新日志
 
+### v3.1 (2026-04-23)
+- ✅ 增加调度器群汇报功能
+- ✅ 有任务时发送「调度器启动」和「任务调度完成」通知
+- ✅ 无任务时静默执行
+- ✅ 各 Agent 执行完成后在群里分别汇报
+
 ### v3.0 (2026-04-23)
 - ✅ 改为WebSocket直接调用架构
 - ✅ 移除任务文件中间层，简化架构
@@ -331,7 +340,7 @@ message({
 
 ```
 ~/.openclaw/workspace/skills/github-projects/
-├── github_scheduler_ws.py    # v3主调度器（WebSocket版）
+├── github_scheduler_ws.py    # v3主调度器（WebSocket版，含群汇报）
 ├── test_openclaw_gateway_ws.py  # WebSocket测试脚本
 ├── task_scheduler_v2.py      # v2旧版调度器（已弃用）
 ├── monitor_scheduler.py      # 调度器监控
@@ -339,7 +348,14 @@ message({
 ├── README.md                 # 完整文档
 ├── SKILL.md                  # OpenClaw技能文件
 ├── MIGRATION_v2_to_v3.md     # v2到v3迁移指南
-└── ai-team/                  # Agent技能配置
+└── ai-team/                  # Agent技能配置（含任务行为规范）
+    ├── dev/SKILLS.md
+    ├── content/SKILLS.md
+    ├── marketing/SKILLS.md
+    ├── consultant/SKILLS.md
+    ├── finance/SKILLS.md
+    ├── operations/SKILLS.md
+    └── ops/SKILLS.md
 ```
 
 ---
