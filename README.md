@@ -87,7 +87,7 @@ export GH_TOKEN="ghp_your_github_token_here"
 export GH_PROJECT_ID="PVT_kwHOABOkaM4BVDrk"
 
 # 飞书群ID（可选，默认使用配置）
-export GH_FEISHU_CHAT_ID="oc_xxx"
+export GH_FEISHU_CHAT_ID="oc_1d05adec7a7ee7b58bf89b9ecc718378"
 
 # OpenClaw Gateway Token（可选，自动从 ~/.openclaw/openclaw.json 读取）
 export OPENCLAW_GATEWAY_TOKEN=""
@@ -99,7 +99,7 @@ export OPENCLAW_GATEWAY_TOKEN=""
 {
   "gh_token": "",
   "project_id": "PVT_kwHOABOkaM4BVDrk",
-  "feishu_chat_id": "oc_xxx",
+  "feishu_chat_id": "oc_1d05adec7a7ee7b58bf89b9ecc718378",
   "ws_url": "ws://127.0.0.1:18789"
 }
 ```
@@ -127,7 +127,7 @@ export GH_TOKEN="ghp_your_github_token_here"
 export GH_PROJECT_ID="PVT_kwHOABOkaM4BVDrk"
 
 # 飞书群ID（可选，默认使用配置）
-export GH_FEISHU_CHAT_ID="oc_xxxxxxxxxxxxxxxx"
+export GH_FEISHU_CHAT_ID="oc_1d05adec7a7ee7b58bf89b9ecc718378xxxxxxxxxxxxx"
 
 # OpenClaw Gateway Token（可选，自动从 ~/.openclaw/openclaw.json 读取）
 export OPENCLAW_GATEWAY_TOKEN=""
@@ -144,7 +144,7 @@ vim ~/.openclaw/github-projects-config.json
 {
   "gh_token": "ghp_your_github_token_here",
   "project_id": "PVT_kwHOABOkaM4BVDrk",
-  "feishu_chat_id": "oc_xxxxxxxxxxxxxxxx",
+  "feishu_chat_id": "oc_1d05adec7a7ee7b58bf89b9ecc718378xxxxxxxxxxxxx",
   "ws_url": "ws://127.0.0.1:18789"
 }
 ```
@@ -436,7 +436,7 @@ message({
   accountId: "你的agent名称",  // 必须指定：dev/content/marketing等
   action: "send",
   channel: "feishu",
-  target: "oc_xxx",  // 群ID
+  target: "oc_1d05adec7a7ee7b58bf89b9ecc718378",  // 群ID
   message: "【你的身份】汇报内容..."
 })
 ```
