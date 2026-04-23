@@ -138,19 +138,25 @@ def send_group_message(content: str):
     """发送群消息到飞书"""
     try:
         import subprocess
+        # 使用完整路径调用 openclaw
+        openclaw_path = "/Users/jiashaoshan/.npm-global/bin/openclaw"
+        if not os.path.exists(openclaw_path):
+            # 尝试从 PATH 找
+            openclaw_path = "openclaw"
+        
         result = subprocess.run(
-            ["openclaw", "message", "send", "--channel", "feishu",
+            [openclaw_path, "message", "send", "--channel", "feishu",
              "--target", f"chat:{FEISHU_CHAT_ID}", "--message", content],
             capture_output=True,
             text=True,
             timeout=10
         )
         if result.returncode == 0:
-            log(f"群消息发送成功")
+            print(f"[群消息] 发送成功")
         else:
-            log(f"群消息发送失败: {result.stderr}")
+            print(f"[群消息] 发送失败: {result.stderr}")
     except Exception as e:
-        log(f"发送群消息异常: {e}")
+        print(f"[群消息] 异常: {e}")
 
 
 # ============ OpenClaw WebSocket 客户端 ============
