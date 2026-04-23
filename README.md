@@ -431,12 +431,15 @@ subprocess.run([
 当需要在AI智能团队群汇报时，必须使用自己的飞书Bot账号：
 
 **调用方式**：
+
+群ID可以从~/.openclaw/workspace/skills/github-projects/task_scheduler_v2.py中的{feishu_chat_id}获取
+
 ```javascript
 message({
   accountId: "你的agent名称",  // 必须指定：dev/content/marketing等
   action: "send",
   channel: "feishu",
-  target: "oc_1d05adec7a7ee7b58bf89b9ecc718378",  // 群ID
+  target: "{feishu_chat_id}",  // 群ID
   message: "【你的身份】汇报内容..."
 })
 ```
