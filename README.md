@@ -339,7 +339,7 @@ export GH_TOKEN="ghp_your_token"  # GitHub Token（必填）
 **接收时间**: 2026-XX-XX XX:XX:XX
 **任务名称**: [任务名称]
 **任务摘要**
-任务概要描述
+[任务描述]
 ```
 注意：群ID可以从```~/.openclaw/workspace/skills/github-projects/config.json中的{feishu_chat_id}```获取
 
