@@ -205,7 +205,7 @@ python3 create_task.py --start-date 2026-04-24
 export GH_TOKEN="ghp_your_token"  # GitHub Token（必填）
 ```
 
-#### 方式B：手动在 GitHub Projects 中创建
+### 方式B：手动在 GitHub Projects 中创建
 
 **必填字段：**
 - **标题**：任务描述
@@ -495,3 +495,4 @@ message({
 ## 许可证
 
 MIT License
+
