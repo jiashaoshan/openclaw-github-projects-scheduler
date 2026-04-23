@@ -432,8 +432,6 @@ subprocess.run([
 
 **调用方式**：
 
-群ID可以从~/.openclaw/workspace/skills/github-projects/task_scheduler_v2.py中的{feishu_chat_id}获取
-
 ```javascript
 message({
   accountId: "你的agent名称",  // 必须指定：dev/content/marketing等
@@ -443,6 +441,8 @@ message({
   message: "【你的身份】汇报内容..."
 })
 ```
+注意：群ID可以从```~/.openclaw/workspace/skills/github-projects/task_scheduler_v2.py中的{feishu_chat_id}```获取
+
 
 **关键要求**：
 - 必须指定 accountId 为自己的 agent ID
