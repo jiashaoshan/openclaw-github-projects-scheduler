@@ -133,27 +133,6 @@ def log(msg: str, force: bool = False):
         print(f"[{timestamp}] {msg}", flush=True)
 
 
-# ============ 飞书群汇报 ============
-async def send_group_message_ws(client: OpenClawGatewayClient, content: str):
-    """使用 WebSocket 发送群消息到飞书"""
-    try:
-        result = await client.request(
-            "message.send",
-            {
-                "channel": "feishu",
-                "target": f"chat:{FEISHU_CHAT_ID}",
-                "message": content
-            },
-            timeout=10
-        )
-        if result.get("type") == "res" and result.get("ok"):
-            print(f"[群消息] 发送成功")
-        else:
-            print(f"[群消息] 发送失败: {result}")
-    except Exception as e:
-        print(f"[群消息] 异常: {e}")
-
-
 # 兼容旧代码的同步调用方式（在异步函数中使用）
 def send_group_message(content: str):
     """发送群消息到飞书（同步包装，用于非异步上下文）"""
@@ -575,7 +554,20 @@ async def check_and_trigger_tasks():
         return 0, len(pending_tasks)
     
     # 【汇报1】调度器启动 - 发现有任务，在群里汇报
-    await send_group_message_ws(client, f"🤖 【调度器启动】发现 {len(pending_tasks)} 个待处理任务，开始调度执行...")
+    try:
+        result = await client.request(
+            "message.send",
+            {
+                "channel": "feishu",
+                "target": f"chat:{FEISHU_CHAT_ID}",
+                "message": f"🤖 【调度器启动】发现 {len(pending_tasks)} 个待处理任务，开始调度执行..."
+            },
+            timeout=10
+        )
+        if result.get("type") == "res" and result.get("ok"):
+            print(f"[群消息] 发送成功")
+    except Exception as e:
+        print(f"[群消息] 异常: {e}")
     
     try:
         for task in pending_tasks:
@@ -638,7 +630,13 @@ async def check_and_trigger_tasks():
         
         summary_text = "\n".join(task_summary)
         
-        await send_group_message_ws(client, f"""📋 【任务调度完成】
+        try:
+            result = await client.request(
+                "message.send",
+                {
+                    "channel": "feishu",
+                    "target": f"chat:{FEISHU_CHAT_ID}",
+                    "message": f"""📋 【任务调度完成】
 
 本次调度统计：
 • 发现任务：{len(pending_tasks)} 个
@@ -648,7 +646,14 @@ async def check_and_trigger_tasks():
 任务执行清单：
 {summary_text}
 
-⏳ 各 Agent 正在执行中，完成后将分别汇报结果...""")
+⏳ 各 Agent 正在执行中，完成后将分别汇报结果..."""
+                },
+                timeout=10
+            )
+            if result.get("type") == "res" and result.get("ok"):
+                print(f"[群消息] 发送成功")
+        except Exception as e:
+            print(f"[群消息] 异常: {e}")
     
     log(f"\n本次检查完成: 成功 {triggered} 个, 失败 {failed} 个")
     log("="*60)
