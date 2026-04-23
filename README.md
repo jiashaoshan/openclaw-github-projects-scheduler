@@ -175,7 +175,37 @@ python3 github_scheduler_ws.py --once --verbose
 
 ### 3. 创建任务
 
-在 GitHub Projects 中创建任务：
+#### 方式A：使用命令行工具（推荐）
+
+使用 `create_task.py` 脚本快速创建任务：
+
+```bash
+# 创建默认任务（市场营销-热点新闻）
+python3 create_task.py
+
+# 创建指定 Agent 的任务
+python3 create_task.py --agent marketing
+python3 create_task.py --agent dev --title "【开发】开发新功能"
+
+# 创建带自定义描述的任务
+python3 create_task.py --agent content --title "【内容创作】小红书文案" --desc "详细描述..."
+
+# 指定开始时间（默认今天）
+python3 create_task.py --start-date 2026-04-24
+```
+
+**参数说明：**
+- `--agent`: 指定 Agent (marketing/content/dev/consultant/finance/operations/ops)
+- `--title`: 任务标题（默认: 【agent】获取最新的热点新闻）
+- `--desc`: 任务描述（默认使用 Agent 模板）
+- `--start-date`: 开始时间 YYYY-MM-DD（默认: 今天）
+
+**环境变量：**
+```bash
+export GH_TOKEN="ghp_your_token"  # GitHub Token（必填）
+```
+
+#### 方式B：手动在 GitHub Projects 中创建
 
 **必填字段：**
 - **标题**：任务描述
