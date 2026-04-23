@@ -316,7 +316,9 @@ message({
 - 同时返回完整结果给主Agent
 ```
 
-### 参考实现
+---
+
+## 参考实现
 
 查看各 Agent 的 SKILLS.md 文件：
 - `ai-team/dev/SKILLS.md` - 开发 Agent 规范
