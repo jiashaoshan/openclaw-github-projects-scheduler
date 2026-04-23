@@ -35,7 +35,8 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 
 # ============ 配置加载 ============
-CONFIG_FILE = Path.home() / ".openclaw" / "github-projects-config.json"
+# 配置文件路径（项目目录）
+CONFIG_FILE = Path(__file__).parent / "config.json"
 
 def load_config():
     """加载配置，优先级：环境变量 > 配置文件 > 默认值"""
@@ -47,7 +48,7 @@ def load_config():
         "start_date_field_id": "PVTF_lAHOABOkaM4BVDrkzhQiE-c",
     }
     
-    # 1. 从配置文件读取
+    # 1. 从配置文件读取（项目目录）
     if CONFIG_FILE.exists():
         try:
             with open(CONFIG_FILE) as f:

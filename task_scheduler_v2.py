@@ -31,7 +31,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any
 
 # ============ 配置 ============
-CONFIG_FILE = Path.home() / ".openclaw" / "github-projects-config.json"
+# 配置文件路径（项目目录）
+CONFIG_FILE = Path(__file__).parent / "config.json"
 
 def load_config():
     """加载配置，优先级：配置文件 > 环境变量 > 默认值"""
@@ -40,7 +41,7 @@ def load_config():
         "project_id": "PVT_kwHOABOkaM4BVDrk",
     }
     
-    # 从配置文件读取
+    # 从配置文件读取（项目目录）
     if CONFIG_FILE.exists():
         try:
             with open(CONFIG_FILE) as f:
@@ -48,8 +49,8 @@ def load_config():
                 for key, value in file_config.items():
                     if key in config and value:
                         config[key] = value
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"⚠️ 配置文件读取失败: {e}")
     
     # 从环境变量读取（覆盖配置文件）
     env_token = os.environ.get("GH_TOKEN", "")

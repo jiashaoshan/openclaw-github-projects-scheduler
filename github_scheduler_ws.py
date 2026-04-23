@@ -46,7 +46,8 @@ except ImportError:
     sys.exit(1)
 
 # ============ 配置加载 ============
-CONFIG_FILE = Path.home() / ".openclaw" / "github-projects-config.json"
+# 配置文件路径（项目目录）
+CONFIG_FILE = Path(__file__).parent / "config.json"
 
 # 默认值
 DEFAULT_CONFIG = {
@@ -64,7 +65,7 @@ def load_config():
     """加载配置，优先级：环境变量 > 配置文件 > 默认值"""
     config = DEFAULT_CONFIG.copy()
     
-    # 1. 从配置文件读取（覆盖默认值）
+    # 1. 从配置文件读取（项目目录，覆盖默认值）
     if CONFIG_FILE.exists():
         try:
             with open(CONFIG_FILE) as f:
@@ -76,6 +77,8 @@ def load_config():
             print(f"✅ 已加载配置文件: {CONFIG_FILE}")
         except Exception as e:
             print(f"⚠️ 配置文件读取失败: {e}")
+    else:
+        print(f"⚠️ 配置文件不存在: {CONFIG_FILE}，使用默认值")
     
     # 2. 从环境变量读取（最高优先级，覆盖配置文件）
     env_mappings = {
