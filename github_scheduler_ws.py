@@ -45,12 +45,58 @@ except ImportError:
     print("❌ 缺少 websockets，请先安装: pip install websockets")
     sys.exit(1)
 
-# ============ 配置 ============
-GH_TOKEN = os.environ.get("GH_TOKEN", "")
-PROJECT_ID = "PVT_kwHOABOkaM4BVDrk"
-STATUS_FIELD_ID = "PVTSSF_lAHOABOkaM4BVDrkzhQiE3c"
-AGENT_FIELD_ID = "PVTSSF_lAHOABOkaM4BVDrkzhQl13Y"
-START_DATE_FIELD_ID = "PVTF_lAHOABOkaM4BVDrkzhQiE-c"
+# ============ 配置加载 ============
+CONFIG_FILE = Path.home() / ".openclaw" / "github-projects-config.json"
+
+def load_config():
+    """加载配置，优先级：配置文件 > 环境变量 > 默认值"""
+    config = {
+        # 默认值
+        "gh_token": "",
+        "project_id": "PVT_kwHOABOkaM4BVDrk",
+        "status_field_id": "PVTSSF_lAHOABOkaM4BVDrkzhQiE3c",
+        "agent_field_id": "PVTSSF_lAHOABOkaM4BVDrkzhQl13Y",
+        "start_date_field_id": "PVTF_lAHOABOkaM4BVDrkzhQiE-c",
+        "feishu_chat_id": "oc_xxx",
+        "ws_url": "ws://127.0.0.1:18789",
+        "gateway_token": ""
+    }
+    
+    # 1. 从配置文件读取（最高优先级）
+    if CONFIG_FILE.exists():
+        try:
+            with open(CONFIG_FILE) as f:
+                file_config = json.load(f)
+                config.update(file_config)
+            print(f"✅ 已加载配置文件: {CONFIG_FILE}")
+        except Exception as e:
+            print(f"⚠️ 配置文件读取失败: {e}")
+    
+    # 2. 从环境变量读取（覆盖配置文件）
+    env_mappings = {
+        "gh_token": "GH_TOKEN",
+        "project_id": "GH_PROJECT_ID",
+        "feishu_chat_id": "GH_FEISHU_CHAT_ID",
+        "gateway_token": "OPENCLAW_GATEWAY_TOKEN"
+    }
+    
+    for config_key, env_key in env_mappings.items():
+        env_value = os.environ.get(env_key, "")
+        if env_value:
+            config[config_key] = env_value
+    
+    return config
+
+# 加载配置
+CONFIG = load_config()
+
+# ============ 配置项 ============
+GH_TOKEN = CONFIG["gh_token"]
+PROJECT_ID = CONFIG["project_id"]
+STATUS_FIELD_ID = CONFIG["status_field_id"]
+AGENT_FIELD_ID = CONFIG["agent_field_id"]
+START_DATE_FIELD_ID = CONFIG["start_date_field_id"]
+FEISHU_CHAT_ID = CONFIG["feishu_chat_id"]
 
 STATUS_TODO = "f75ad846"
 STATUS_IN_PROGRESS = "47fc9ee4"
@@ -70,11 +116,8 @@ AGENT_OPTIONS = {
 }
 
 # WebSocket配置
-DEFAULT_WS_URL = "ws://127.0.0.1:18789"
-DEFAULT_GATEWAY_TOKEN = os.getenv("OPENCLAW_GATEWAY_TOKEN", "")
-
-# 飞书群配置（AI智能团队群）
-FEISHU_CHAT_ID = "oc_xxx"  # 需要替换为实际群ID
+DEFAULT_WS_URL = CONFIG["ws_url"]
+DEFAULT_GATEWAY_TOKEN = CONFIG["gateway_token"]
 
 VERBOSE = False
 
