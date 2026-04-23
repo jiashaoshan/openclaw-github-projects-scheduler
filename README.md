@@ -314,19 +314,19 @@ export GH_TOKEN="ghp_your_token"  # GitHub Token（必填）
 
 **GitHub Projects 任务**（任务来源: GitHub Projects）：
 - 任务ID格式：`PVTI_xxx`
-- **必须** 更新GitHub任务状态
-- **必须** 添加GitHub任务评论
-- **必须** 群里汇报结果
+- **必须** 执行完任务后，更新GitHub任务状态
+- **必须** 执行完任务后，添加GitHub任务评论
+- **必须** 执行完任务后，群里汇报结果
 
 **直接对话派发任务**（任务来源: 直接对话派发）：
 - 任务ID格式：普通字符串或对话ID
-- **不需要**更新GitHub状态
-- **不需要**更新GitHub评论
+- **不需要** 执行完任务后，更新GitHub状态
+- **不需要** 执行完任务后，更新GitHub评论
 - 直接群里汇报、返回结果即可
 
 ### GitHub Projects 任务执行流程
 
-当执行 GitHub Projects 自动任务时，子Agent必须按以下顺序执行：
+当执行 GitHub Projects 自动任务时，子Agent在任务执行完成后，必须按以下顺序执行：
 
 **第1步：更新任务状态为 Done（必须，防止重复执行）**
 
@@ -388,10 +388,10 @@ subprocess.run([
 """])
 ```
 
-**重要顺序**：
+**GitHub Projects 任务重要顺序**：
 1. **先更新状态** → `--complete` 或 `--fail`（防止重复执行）
 2. **再添加评论** → `--comment` + `--body`
-3. **群里汇报** → 使用飞书Bot
+3. **群里汇报** → 使用自己飞书Bot
 4. **返回结果** → 给主Agent
 
 ### 群内发言规则
