@@ -134,29 +134,32 @@ def log(msg: str, force: bool = False):
 
 
 # ============ 飞书群汇报 ============
-def send_group_message(content: str):
-    """发送群消息到飞书"""
+async def send_group_message_ws(client: OpenClawGatewayClient, content: str):
+    """使用 WebSocket 发送群消息到飞书"""
     try:
-        import subprocess
-        # 使用完整路径调用 openclaw
-        openclaw_path = "/Users/jiashaoshan/.npm-global/bin/openclaw"
-        if not os.path.exists(openclaw_path):
-            # 尝试从 PATH 找
-            openclaw_path = "openclaw"
-        
-        result = subprocess.run(
-            [openclaw_path, "message", "send", "--channel", "feishu",
-             "--target", f"chat:{FEISHU_CHAT_ID}", "--message", content],
-            capture_output=True,
-            text=True,
+        result = await client.request(
+            "message.send",
+            {
+                "channel": "feishu",
+                "target": f"chat:{FEISHU_CHAT_ID}",
+                "message": content
+            },
             timeout=10
         )
-        if result.returncode == 0:
+        if result.get("type") == "res" and result.get("ok"):
             print(f"[群消息] 发送成功")
         else:
-            print(f"[群消息] 发送失败: {result.stderr}")
+            print(f"[群消息] 发送失败: {result}")
     except Exception as e:
         print(f"[群消息] 异常: {e}")
+
+
+# 兼容旧代码的同步调用方式（在异步函数中使用）
+def send_group_message(content: str):
+    """发送群消息到飞书（同步包装，用于非异步上下文）"""
+    # 注意：此函数只能在异步上下文中使用，通过 check_and_trigger_tasks 中的 client 调用
+    # 这里只是打印日志，实际发送在 check_and_trigger_tasks 中完成
+    print(f"[群消息] 准备发送: {content[:50]}...")
 
 
 # ============ OpenClaw WebSocket 客户端 ============
@@ -561,14 +564,14 @@ async def check_and_trigger_tasks():
     
     log(f"发现 {len(pending_tasks)} 个待处理任务")
     
-    # 【汇报1】调度器启动 - 发现有任务，在群里汇报
-    send_group_message(f"🤖 【调度器启动】发现 {len(pending_tasks)} 个待处理任务，开始调度执行...")
-    
     # 连接WebSocket
     client = OpenClawGatewayClient()
     if not await client.connect():
         log("❌ WebSocket连接失败，无法执行任务")
         return 0, len(pending_tasks)
+    
+    # 【汇报1】调度器启动 - 发现有任务，在群里汇报
+    await send_group_message_ws(client, f"🤖 【调度器启动】发现 {len(pending_tasks)} 个待处理任务，开始调度执行...")
     
     try:
         for task in pending_tasks:
@@ -631,7 +634,7 @@ async def check_and_trigger_tasks():
         
         summary_text = "\n".join(task_summary)
         
-        send_group_message(f"""📋 【任务调度完成】
+        await send_group_message_ws(client, f"""📋 【任务调度完成】
 
 本次调度统计：
 • 发现任务：{len(pending_tasks)} 个
