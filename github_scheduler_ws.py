@@ -48,31 +48,36 @@ except ImportError:
 # ============ 配置加载 ============
 CONFIG_FILE = Path.home() / ".openclaw" / "github-projects-config.json"
 
+# 默认值
+DEFAULT_CONFIG = {
+    "gh_token": "",
+    "project_id": "PVT_kwHOABOkaM4BVDrk",
+    "status_field_id": "PVTSSF_lAHOABOkaM4BVDrkzhQiE3c",
+    "agent_field_id": "PVTSSF_lAHOABOkaM4BVDrkzhQl13Y",
+    "start_date_field_id": "PVTF_lAHOABOkaM4BVDrkzhQiE-c",
+    "feishu_chat_id": "oc_xxx",
+    "ws_url": "ws://127.0.0.1:18789",
+    "gateway_token": ""
+}
+
 def load_config():
-    """加载配置，优先级：配置文件 > 环境变量 > 默认值"""
-    config = {
-        # 默认值
-        "gh_token": "",
-        "project_id": "PVT_kwHOABOkaM4BVDrk",
-        "status_field_id": "PVTSSF_lAHOABOkaM4BVDrkzhQiE3c",
-        "agent_field_id": "PVTSSF_lAHOABOkaM4BVDrkzhQl13Y",
-        "start_date_field_id": "PVTF_lAHOABOkaM4BVDrkzhQiE-c",
-        "feishu_chat_id": "oc_xxx",
-        "ws_url": "ws://127.0.0.1:18789",
-        "gateway_token": ""
-    }
+    """加载配置，优先级：环境变量 > 配置文件 > 默认值"""
+    config = DEFAULT_CONFIG.copy()
     
-    # 1. 从配置文件读取（最高优先级）
+    # 1. 从配置文件读取（覆盖默认值）
     if CONFIG_FILE.exists():
         try:
             with open(CONFIG_FILE) as f:
                 file_config = json.load(f)
-                config.update(file_config)
+                # 只更新非空值
+                for key, value in file_config.items():
+                    if key in config and value:
+                        config[key] = value
             print(f"✅ 已加载配置文件: {CONFIG_FILE}")
         except Exception as e:
             print(f"⚠️ 配置文件读取失败: {e}")
     
-    # 2. 从环境变量读取（覆盖配置文件）
+    # 2. 从环境变量读取（最高优先级，覆盖配置文件）
     env_mappings = {
         "gh_token": "GH_TOKEN",
         "project_id": "GH_PROJECT_ID",
