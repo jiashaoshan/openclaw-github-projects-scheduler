@@ -614,10 +614,7 @@ async def check_and_trigger_tasks():
                 # Agent执行异常，调度器将状态回滚为 Todo
                 update_item_status(item_id, STATUS_TODO)
                 failed += 1
-    finally:
-        await client.close()
-    
-    # 【汇报2】执行完成 - 在群里汇报执行结果
+    # 【汇报2】执行完成 - 在群里汇报执行结果（在关闭连接前）
     if triggered > 0 or failed > 0:
         # 构建任务执行摘要
         task_summary = []
@@ -654,6 +651,9 @@ async def check_and_trigger_tasks():
                 print(f"[群消息] 发送成功")
         except Exception as e:
             print(f"[群消息] 异常: {e}")
+    
+    finally:
+        await client.close()
     
     log(f"\n本次检查完成: 成功 {triggered} 个, 失败 {failed} 个")
     log("="*60)
