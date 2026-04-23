@@ -126,8 +126,102 @@ def graphql_query(query: str, variables: Dict = None) -> Optional[Dict]:
         return None
 
 
+def get_repository_id() -> Optional[str]:
+    """获取默认仓库 ID"""
+    # 从 PROJECT_ID 解析仓库信息，或者使用默认仓库
+    # 这里假设使用用户的默认仓库，可以通过环境变量配置
+    repo_owner = os.environ.get("GH_REPO_OWNER", "jiashaoshan")
+    repo_name = os.environ.get("GH_REPO_NAME", "openclaw-github-projects-scheduler")
+    
+    query = """
+    query($owner: String!, $name: String!) {
+        repository(owner: $owner, name: $name) {
+            id
+        }
+    }
+    """
+    
+    result = graphql_query(query, {"owner": repo_owner, "name": repo_name})
+    if result:
+        return result.get("repository", {}).get("id")
+    return None
+
+
+def create_issue(title: str, body: str) -> Optional[str]:
+    """创建正式 Issue（状态为 Open）"""
+    # 先获取仓库 ID
+    repository_id = get_repository_id()
+    if not repository_id:
+        print("⚠️ 无法获取仓库 ID，尝试创建 Draft Issue...")
+        return create_draft_issue(title, body)
+    
+    # 创建正式 Issue
+    mutation = """
+    mutation($repositoryId: ID!, $title: String!, $body: String) {
+        createIssue(
+            input: {
+                repositoryId: $repositoryId
+                title: $title
+                body: $body
+            }
+        ) {
+            issue {
+                id
+                number
+                url
+            }
+        }
+    }
+    """
+    
+    result = graphql_query(mutation, {
+        "repositoryId": repository_id,
+        "title": title,
+        "body": body
+    })
+    
+    if result:
+        issue = result.get("createIssue", {}).get("issue", {})
+        issue_id = issue.get("id")
+        issue_number = issue.get("number")
+        issue_url = issue.get("url")
+        print(f"✅ Issue 创建成功: #{issue_number} - {issue_url}")
+        
+        # 将 Issue 添加到 Project
+        return add_issue_to_project(issue_id)
+    return None
+
+
+def add_issue_to_project(issue_id: str) -> Optional[str]:
+    """将 Issue 添加到 Project"""
+    mutation = """
+    mutation($projectId: ID!, $contentId: ID!) {
+        addProjectV2ItemById(
+            input: {
+                projectId: $projectId
+                contentId: $contentId
+            }
+        ) {
+            item {
+                id
+            }
+        }
+    }
+    """
+    
+    result = graphql_query(mutation, {
+        "projectId": PROJECT_ID,
+        "contentId": issue_id
+    })
+    
+    if result:
+        item_id = result.get("addProjectV2ItemById", {}).get("item", {}).get("id")
+        return item_id
+    return None
+
+
 def create_draft_issue(title: str, body: str) -> Optional[str]:
-    """创建 Draft Issue"""
+    """创建 Draft Issue（备用方案）"""
     mutation = """
     mutation($projectId: ID!, $title: String!, $body: String) {
         addProjectV2DraftIssue(
@@ -383,8 +477,8 @@ def main():
     print(f"   标题: {title}")
     print(f"   开始时间: {start_date}")
     
-    # 创建 Draft Issue
-    item_id = create_draft_issue(title, body)
+    # 创建正式 Issue（状态为 Open）
+    item_id = create_issue(title, body)
     if not item_id:
         print("❌ 创建任务失败")
         sys.exit(1)
