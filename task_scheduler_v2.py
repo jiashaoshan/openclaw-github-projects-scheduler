@@ -218,6 +218,30 @@ def get_agent_name_by_option_id(option_id: str) -> Optional[str]:
             return name
     return None
 
+
+def add_task_comment(item_id: str, body: str) -> bool:
+    """添加任务评论"""
+    mutation = """
+    mutation($itemId: ID!, $body: String!) {
+        addProjectV2ItemComment(
+            input: {
+                itemId: $itemId
+                body: $body
+            }
+        ) {
+            clientMutationId
+        }
+    }
+    """
+    
+    result = graphql_query(mutation, {
+        "itemId": item_id,
+        "body": body
+    })
+    
+    return result is not None and "errors" not in result
+
+
 # ============ 任务文件管理 ============
 
 def ensure_tasks_dir():
@@ -416,12 +440,20 @@ def main():
     
     elif args.fail:
         # Agent调用：标记任务失败
-        reason = ""  # 可以从其他地方获取失败原因
-        if update_item_status(args.fail, STATUS_FAILED):
-            complete_task_file(args.agent, args.fail, success=False, result=reason)
-            log(f"✅ 任务已标记失败: {args.fail}", True)
+        # 解析失败原因（格式: item_id:失败原因）
+        fail_parts = args.fail.split(":", 1)
+        item_id = fail_parts[0]
+        reason = fail_parts[1] if len(fail_parts) > 1 else ""
+        
+        # 先添加失败评论
+        if reason:
+            add_task_comment(item_id, f"❌ 任务执行失败\n\n**失败原因**: {reason}")
+        
+        if update_item_status(item_id, STATUS_FAILED):
+            complete_task_file(args.agent, item_id, success=False, result=reason)
+            log(f"✅ 任务已标记失败: {item_id}", True)
         else:
-            log(f"❌ 标记失败失败: {args.fail}", True)
+            log(f"❌ 标记失败失败: {item_id}", True)
             sys.exit(1)
     
     else:

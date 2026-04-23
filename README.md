@@ -310,9 +310,68 @@ export GH_TOKEN="ghp_your_token"  # GitHub Token（必填）
 - **不需要**更新GitHub状态
 - 直接群里汇报即可
 
-### GitHub Projects 任务状态自更新
+### GitHub Projects 任务执行流程
 
-当执行 GitHub Projects 自动任务时，子Agent必须自己更新任务状态：
+当执行 GitHub Projects 自动任务时，子Agent必须按以下顺序执行：
+
+**第1步：添加任务执行评论（必须）**
+
+在更新状态前，必须先添加评论记录执行情况：
+
+```python
+import requests
+import os
+from datetime import datetime
+
+GH_TOKEN = os.environ.get('GH_TOKEN', '')
+ITEM_ID = '任务ID'  # 从任务描述中获取
+
+# 准备评论内容
+comment_body = f"""## ✅ 任务执行完成
+
+**执行Agent**: [你的Agent名称]
+**执行时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+**执行结果**: 成功
+
+### 执行摘要
+- 完成的任务：[简要描述]
+- 关键结果：[关键产出]
+- 遇到的问题：[如有]
+
+### 详细说明
+[详细描述执行过程和结果]
+"""
+
+# 调用 GitHub GraphQL API 添加评论
+query = '''
+mutation($itemId: ID!, $body: String!) {
+    addProjectV2ItemComment(
+        input: {
+            itemId: $itemId
+            body: $body
+        }
+    ) {
+        clientMutationId
+    }
+}
+'''
+
+response = requests.post(
+    'https://api.github.com/graphql',
+    headers={'Authorization': f'Bearer {GH_TOKEN}'},
+    json={
+        'query': query,
+        'variables': {'itemId': ITEM_ID, 'body': comment_body}
+    }
+)
+
+if response.status_code == 200:
+    print('✅ 评论添加成功')
+else:
+    print(f'❌ 评论添加失败: {response.text}')
+```
+
+**第2步：更新GitHub状态**
 
 **执行成功时**：
 ```python
@@ -331,7 +390,7 @@ subprocess.run([
 **执行失败时**：
 ```python
 import subprocess
-# 标记任务失败
+# 标记任务失败（会自动添加失败评论）
 subprocess.run([
     "python3",
     "~/.openclaw/workspace/skills/github-projects/task_scheduler_v2.py", 
@@ -342,11 +401,11 @@ subprocess.run([
 ])
 ```
 
-**重要**：
-- 先判断任务类型（看"任务来源"字段）
-- 只有GitHub Projects任务需要更新状态
-- 直接对话任务只需群里汇报
-- 完成后立即处理，不要等待主Agent
+**重要顺序**：
+1. **先添加评论** → 记录执行摘要
+2. **再更新状态** → Done 或 Failed
+3. **群里汇报** → 使用飞书Bot
+4. **返回结果** → 给主Agent
 
 ### 群内发言规则
 
