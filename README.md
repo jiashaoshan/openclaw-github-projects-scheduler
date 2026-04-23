@@ -79,8 +79,21 @@ pip install websockets requests
 **配置环境变量：**
 ```bash
 # 添加到 ~/.zshrc 或 ~/.bash_profile
+
+# GitHub Token（必填）
 export GH_TOKEN="ghp_your_github_token_here"
+
+# GitHub Projects ID（可选，默认使用配置）
+export GH_PROJECT_ID="PVT_kwHOABOkaM4BVDrk"
+
+# 飞书群ID（可选，默认使用配置）
+export GH_FEISHU_CHAT_ID="oc_xxx"
+
+# OpenClaw Gateway Token（可选，自动从 ~/.openclaw/openclaw.json 读取）
+export OPENCLAW_GATEWAY_TOKEN=""
 ```
+
+**配置优先级：** 环境变量 > 配置文件(~/.openclaw/github-projects-config.json) > 代码默认值
 
 ### 2. 安装调度器
 
@@ -90,11 +103,29 @@ cp ~/.openclaw/workspace/skills/github-projects/github_scheduler_ws.py ~/github_
 chmod +x ~/github_scheduler.py
 ```
 
-**步骤2：配置飞书群ID**
-编辑 `github_scheduler_ws.py`，设置实际的群ID：
-```python
-# 飞书群配置（AI智能团队群）
-FEISHU_CHAT_ID = "oc_xxxxxxxxxxxxxxxx"  # 替换为实际群ID
+**步骤2：配置调度器**
+
+方式A - 使用环境变量（推荐用于敏感信息）：
+```bash
+# 添加到 ~/.zshrc 或 ~/.bash_profile
+export GH_TOKEN="ghp_your_github_token_here"
+export GH_FEISHU_CHAT_ID="oc_xxxxxxxxxxxxxxxx"  # 飞书群ID
+```
+
+方式B - 使用配置文件（推荐用于固定配置）：
+```bash
+# 编辑配置文件
+vim ~/.openclaw/github-projects-config.json
+```
+
+配置文件示例：
+```json
+{
+  "gh_token": "ghp_your_github_token_here",
+  "project_id": "PVT_kwHOABOkaM4BVDrk",
+  "feishu_chat_id": "oc_xxxxxxxxxxxxxxxx",
+  "ws_url": "ws://127.0.0.1:18789"
+}
 ```
 
 **步骤3：配置系统 crontab**
