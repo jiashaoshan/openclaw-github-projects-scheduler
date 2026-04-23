@@ -108,8 +108,18 @@ chmod +x ~/github_scheduler.py
 方式A - 使用环境变量（推荐用于敏感信息）：
 ```bash
 # 添加到 ~/.zshrc 或 ~/.bash_profile
+
+# GitHub Token（必填）
 export GH_TOKEN="ghp_your_github_token_here"
-export GH_FEISHU_CHAT_ID="oc_xxxxxxxxxxxxxxxx"  # 飞书群ID
+
+# GitHub Projects ID（可选，默认使用配置）
+export GH_PROJECT_ID="PVT_kwHOABOkaM4BVDrk"
+
+# 飞书群ID（可选，默认使用配置）
+export GH_FEISHU_CHAT_ID="oc_xxxxxxxxxxxxxxxx"
+
+# OpenClaw Gateway Token（可选，自动从 ~/.openclaw/openclaw.json 读取）
+export OPENCLAW_GATEWAY_TOKEN=""
 ```
 
 方式B - 使用配置文件（推荐用于固定配置）：
