@@ -93,7 +93,18 @@ export GH_FEISHU_CHAT_ID="oc_xxx"
 export OPENCLAW_GATEWAY_TOKEN=""
 ```
 
-**配置优先级：** 环境变量 > 配置文件(~/.openclaw/github-projects-config.json) > 代码默认值
+**配置文件：**
+项目目录下的 `config.json` 文件：
+```json
+{
+  "gh_token": "",
+  "project_id": "PVT_kwHOABOkaM4BVDrk",
+  "feishu_chat_id": "oc_xxx",
+  "ws_url": "ws://127.0.0.1:18789"
+}
+```
+
+**配置优先级：** 环境变量 > 配置文件(config.json) > 代码默认值
 
 ### 2. 安装调度器
 
