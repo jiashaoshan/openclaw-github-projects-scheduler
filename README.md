@@ -247,6 +247,7 @@ export GH_TOKEN="ghp_your_token"  # GitHub Token（必填）
    ├── 调用 sessions.create(agentId="xxx", message="任务内容")
    ├── 实时接收Agent流式回复
    ├── 等待任务执行完成
+   ├── **Agent 添加任务执行评论**（必须）
    └── Agent 自行更新 GitHub 状态 → "Done/Failed"
             ↓
 4. 执行完成
@@ -256,6 +257,12 @@ export GH_TOKEN="ghp_your_token"  # GitHub Token（必填）
             ↓
 5. 清理
    └── 关闭WebSocket连接
+
+**Agent 执行规范：**
+1. **添加评论** → 记录执行摘要、关键结果、问题
+2. **更新状态** → Done 或 Failed
+3. **群里汇报** → 使用自己的飞书Bot
+4. **返回结果** → 给主Agent
 ```
 
 **汇报规则：**
