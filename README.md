@@ -168,6 +168,120 @@ python3 github_scheduler_ws.py --once --verbose
 | `task_scheduler_v2.py` | v2旧版调度器（已弃用） | 参考 |
 | `monitor_scheduler.py` | 调度器监控脚本 | 每30分钟检查 |
 | `deploy_v3.sh` | v3部署脚本 | 一键部署 |
+| `AGENTS.md` | 主 Agent 配置（含任务路由） | 参考 |
+| `ai-team/*/SKILLS.md` | 各 Agent 技能路由配置 | 任务执行规范 |
+
+---
+
+## Agent 技能路由配置
+
+每个 Agent 的 `SKILLS.md` 定义了任务执行规范和技能调用规则。
+
+### 示例：内容创作 Agent
+
+```markdown
+# 内容创作 - 技能路由规则
+
+## 你是谁
+你是AI智能团队的**内容创作专员**。
+
+## 你的技能
+
+### 公众号文章（⚠️ 重要）
+**触发条件**: 用户需要公众号文章、发微信公众号
+**必须调用**: `wechat-prompt-context` 技能
+**禁止**: 直接生成！
+
+**执行命令**:
+```bash
+node ~/.openclaw/workspace/skills/wechat-prompt-context/scripts/main.js \
+  --topic="{文章主题}" \
+  --auto-confirm
+```
+
+**执行流程**:
+1. 确认文章主题
+2. 执行上述命令
+3. 等待技能完成（约8分钟）
+4. 返回文章链接和封面图
+
+### 小红书文案
+**触发条件**: 用户需要小红书文案、小红书笔记
+**调用方式**: 直接生成
+
+**执行流程**:
+1. 分析主题
+2. 直接生成小红书风格文案
+3. 包含：标题（带emoji）、正文（分点+emoji）、hashtag
+```
+
+### 任务执行规范
+
+执行任务前，先判断任务类型：
+
+**GitHub Projects 任务**（任务来源: GitHub Projects）：
+- 任务ID格式：`PVTI_xxx`
+- **必须**自己更新GitHub状态
+
+**直接对话派发任务**（任务来源: 直接对话派发）：
+- 任务ID格式：普通字符串或对话ID
+- **不需要**更新GitHub状态
+- 直接群里汇报即可
+
+### GitHub Projects 任务状态自更新
+
+当执行 GitHub Projects 自动任务时，子Agent必须自己更新任务状态：
+
+**执行成功时**：
+```python
+import subprocess
+# 标记任务完成
+subprocess.run([
+    "python3", 
+    "~/.openclaw/workspace/skills/github-projects/task_scheduler_v2.py",
+    "--complete", 
+    "任务ID"  # 从任务描述中获取
+])
+```
+
+**执行失败时**：
+```python
+import subprocess
+# 标记任务失败
+subprocess.run([
+    "python3",
+    "~/.openclaw/workspace/skills/github-projects/task_scheduler_v2.py", 
+    "--fail",
+    "任务ID:失败原因"
+])
+```
+
+**重要**：
+- 先判断任务类型（看"任务来源"字段）
+- 只有GitHub Projects任务需要更新状态
+- 直接对话任务只需群里汇报
+- 完成后立即处理，不要等待主Agent
+
+### 群内发言规则
+
+当需要在AI智能团队群汇报时，必须使用自己的飞书Bot账号：
+
+**调用方式**：
+```javascript
+message({
+  accountId: "content",  // 必须指定：content
+  action: "send",
+  channel: "feishu",
+  target: "oc_xxx",  // 群ID
+  message: "【内容创作】汇报内容..."
+})
+```
+
+**关键要求**：
+- 必须指定 accountId 为自己的 agent ID
+- 消息开头标注身份【内容创作】
+- 先更新GitHub状态，再发群消息
+- 同时返回完整结果给主Agent
 
 ---
 
