@@ -319,18 +319,19 @@ export GH_TOKEN="ghp_your_token"  # GitHub Token（必填）
 在更新状态前，必须先添加评论记录执行情况：
 
 ```python
-import requests
-import os
-from datetime import datetime
+import subprocess
 
-GH_TOKEN = os.environ.get('GH_TOKEN', '')
-ITEM_ID = '任务ID'  # 从任务描述中获取
-
-# 准备评论内容
-comment_body = f"""## ✅ 任务执行完成
+# 添加任务执行评论
+subprocess.run([
+    "python3",
+    "~/.openclaw/workspace/skills/github-projects/task_scheduler_v2.py",
+    "--comment",
+    "任务ID",  # 从任务描述中获取
+    "--body",
+    """## ✅ 任务执行完成
 
 **执行Agent**: [你的Agent名称]
-**执行时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+**执行时间**: 2026-XX-XX XX:XX
 **执行结果**: 成功
 
 ### 执行摘要
@@ -341,34 +342,7 @@ comment_body = f"""## ✅ 任务执行完成
 ### 详细说明
 [详细描述执行过程和结果]
 """
-
-# 调用 GitHub GraphQL API 添加评论
-query = '''
-mutation($itemId: ID!, $body: String!) {
-    addProjectV2ItemComment(
-        input: {
-            itemId: $itemId
-            body: $body
-        }
-    ) {
-        clientMutationId
-    }
-}
-'''
-
-response = requests.post(
-    'https://api.github.com/graphql',
-    headers={'Authorization': f'Bearer {GH_TOKEN}'},
-    json={
-        'query': query,
-        'variables': {'itemId': ITEM_ID, 'body': comment_body}
-    }
-)
-
-if response.status_code == 200:
-    print('✅ 评论添加成功')
-else:
-    print(f'❌ 评论添加失败: {response.text}')
+])
 ```
 
 **第2步：更新GitHub状态**
@@ -402,8 +376,8 @@ subprocess.run([
 ```
 
 **重要顺序**：
-1. **先添加评论** → 记录执行摘要
-2. **再更新状态** → Done 或 Failed
+1. **先添加评论** → `--comment` + `--body`
+2. **再更新状态** → `--complete` 或 `--fail`
 3. **群里汇报** → 使用飞书Bot
 4. **返回结果** → 给主Agent
 

@@ -422,6 +422,8 @@ def main():
     parser.add_argument("--verbose", action="store_true", help="详细输出")
     parser.add_argument("--complete", metavar="ITEM_ID", help="标记任务完成（Agent调用）")
     parser.add_argument("--fail", metavar="ITEM_ID", help="标记任务失败（Agent调用）")
+    parser.add_argument("--comment", metavar="ITEM_ID", help="添加任务评论（Agent调用）")
+    parser.add_argument("--body", type=str, help="评论内容（用于--comment）")
     parser.add_argument("--agent", default="main", help="指定Agent（用于--complete/--fail）")
     
     args = parser.parse_args()
@@ -429,7 +431,19 @@ def main():
     global VERBOSE
     VERBOSE = args.verbose
     
-    if args.complete:
+    if args.comment:
+        # Agent调用：添加评论
+        if not args.body:
+            log(f"❌ 添加评论失败: 缺少 --body 参数", True)
+            sys.exit(1)
+        
+        if add_task_comment(args.comment, args.body):
+            log(f"✅ 评论已添加: {args.comment}", True)
+        else:
+            log(f"❌ 评论添加失败: {args.comment}", True)
+            sys.exit(1)
+    
+    elif args.complete:
         # Agent调用：标记任务完成
         if update_item_status(args.complete, STATUS_DONE):
             complete_task_file(args.agent, args.complete, success=True)
