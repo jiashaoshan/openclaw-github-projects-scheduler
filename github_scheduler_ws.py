@@ -263,23 +263,14 @@ class OpenClawGatewayClient:
 任务描述: {task_body}
 
 请按以下步骤执行：
-1. 首先读取 ~/.openclaw/workspace/ai-team/{agent_id}/SKILLS.md
+1. 读取 ~/.openclaw/workspace/ai-team/{agent_id}/SKILLS.md
 2. 根据任务描述找到匹配的技能路由
-3. **执行任务前**，在AI智能团队群里汇报开始（使用自己的飞书Bot账号，消息开头标注身份如【{agent_id}】）
-4. 调用对应技能完成任务
-5. **先更新状态为Done**（防止重复执行）：
-   python3 ~/.openclaw/workspace/skills/github-projects/task_scheduler_v2.py --complete {item_id} --agent {agent_id}
-6. 如果执行失败，更新状态为Failed：
-   python3 ~/.openclaw/workspace/skills/github-projects/task_scheduler_v2.py --fail "{item_id}:失败原因" --agent {agent_id}
-7. **再添加任务执行评论**：
-   python3 ~/.openclaw/workspace/skills/github-projects/task_scheduler_v2.py --comment {item_id} --body "执行摘要..."
-8. 在AI智能团队群里汇报执行结果（使用自己的飞书Bot账号）
-9. 返回执行结果摘要
+3. 按照SKILLS.md中「GitHub Projects 任务执行流程」的顺序执行（包括群内汇报、状态更新、评论添加等）
+4. 返回执行结果摘要
 
 注意：
-- **必须先更新状态，再添加评论**
+- 所有执行细节（汇报格式、命令参数、执行顺序）以SKILLS.md中的「任务执行规范」为准
 - 完成后立即处理，不要等待主Agent
-- 汇报时消息开头标注身份如【{agent_id}】
 """
 
         self.request_id += 1
