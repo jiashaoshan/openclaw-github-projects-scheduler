@@ -39,35 +39,17 @@ from typing import Optional, Dict, Any
 CONFIG_FILE = Path(__file__).parent / "config.json"
 
 def load_config():
-    """加载配置，优先级：环境变量 > 配置文件 > 默认值"""
-    config = {
-        "gh_token": "",
-        "project_id": "PVT_kwHOABOkaM4BVDrk",
-        "status_field_id": "PVTSSF_lAHOABOkaM4BVDrkzhQiE3c",
-        "agent_field_id": "PVTSSF_lAHOABOkaM4BVDrkzhQl13Y",
-        "start_date_field_id": "PVTF_lAHOABOkaM4BVDrkzhQiE-c",
-    }
+    """加载配置，只从配置文件读取"""
+    if not CONFIG_FILE.exists():
+        print(f"❌ 配置文件不存在: {CONFIG_FILE}")
+        sys.exit(1)
     
-    # 1. 从配置文件读取（项目目录）
-    if CONFIG_FILE.exists():
-        try:
-            with open(CONFIG_FILE) as f:
-                file_config = json.load(f)
-                for key, value in file_config.items():
-                    if key in config and value:
-                        config[key] = value
-        except Exception as e:
-            print(f"⚠️ 配置文件读取失败: {e}")
-    
-    # 2. 从环境变量读取（最高优先级）
-    env_mappings = {
-        "gh_token": "GH_TOKEN",
-        "project_id": "GH_PROJECT_ID",
-    }
-    for config_key, env_key in env_mappings.items():
-        env_value = os.environ.get(env_key, "")
-        if env_value:
-            config[config_key] = env_value
+    try:
+        with open(CONFIG_FILE) as f:
+            config = json.load(f)
+    except Exception as e:
+        print(f"❌ 配置文件读取失败: {e}")
+        sys.exit(1)
     
     return config
 
@@ -76,25 +58,16 @@ CONFIG = load_config()
 # ============ 配置项 ============
 GH_TOKEN = CONFIG["gh_token"]
 PROJECT_ID = CONFIG["project_id"]
-STATUS_FIELD_ID = CONFIG["status_field_id"]
-AGENT_FIELD_ID = CONFIG["agent_field_id"]
-START_DATE_FIELD_ID = CONFIG["start_date_field_id"]
 
-# Agent 选项映射
-AGENT_OPTIONS = {
-    "marketing": "66454f73",
-    "content": "607e4b84",
-    "dev": "6cd51e5a",
-    "consultant": "1eb83706",
-    "finance": "c3710345",
-    "operations": "9250d027",
-    "ops": "c54bb062",
-    "hermes": "461bd124",
-    "main": "ee8306f2"
-}
+# Agent 选项映射（运行时自动填充）
+AGENT_OPTIONS = {}
+AGENT_NAMES = ["marketing", "content", "dev", "consultant", "finance", "operations", "ops", "hermes", "main"]
 
-# 状态选项
-STATUS_TODO = "f75ad846"
+# 字段 ID（运行时自动填充）
+STATUS_FIELD_ID = None
+AGENT_FIELD_ID = None
+START_DATE_FIELD_ID = None
+STATUS_TODO = None
 
 GRAPHQL_URL = "https://api.github.com/graphql"
 
@@ -127,6 +100,79 @@ def graphql_query(query: str, variables: Dict = None) -> Optional[Dict]:
         return None
 
 
+def resolve_project_fields():
+    """
+    自动获取项目的字段 ID 和选项 ID（根据字段名称），
+    取代硬编码的字段 ID 配置。
+    """
+    global STATUS_FIELD_ID, AGENT_FIELD_ID, START_DATE_FIELD_ID, STATUS_TODO
+    global AGENT_OPTIONS
+    
+    query = """
+    query($projectId: ID!) {
+        node(id: $projectId) {
+            ... on ProjectV2 {
+                fields(first: 20) {
+                    nodes {
+                        __typename
+                        ... on ProjectV2FieldCommon {
+                            name
+                            id
+                        }
+                        ... on ProjectV2SingleSelectField {
+                            name
+                            id
+                            options {
+                                id
+                                name
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    """
+    
+    result = graphql_query(query, {"projectId": PROJECT_ID})
+    if not result:
+        print("⚠️ 无法获取项目字段信息")
+        return False
+    
+    fields = result.get("node", {}).get("fields", {}).get("nodes", [])
+    
+    for field in fields:
+        field_name = field.get("name", "")
+        
+        if field_name == "Status":
+            STATUS_FIELD_ID = field.get("id")
+            for opt in field.get("options", []):
+                if opt.get("name") == "Todo":
+                    STATUS_TODO = opt.get("id")
+        
+        elif field_name == "Agent":
+            AGENT_FIELD_ID = field.get("id")
+            for opt in field.get("options", []):
+                opt_name = opt.get("name", "")
+                if opt_name in AGENT_NAMES:
+                    AGENT_OPTIONS[opt_name] = opt.get("id")
+        
+        elif field_name == "Start date":
+            START_DATE_FIELD_ID = field.get("id")
+    
+    missing = []
+    if not STATUS_FIELD_ID or not STATUS_TODO: missing.append("Status")
+    if not AGENT_FIELD_ID or not AGENT_OPTIONS: missing.append("Agent")
+    if not START_DATE_FIELD_ID: missing.append("Start date")
+    
+    if missing:
+        print(f"⚠️ 字段解析不完整，缺少: {', '.join(missing)}")
+        return False
+    
+    print(f"✅ 已自动获取字段：Status={STATUS_FIELD_ID[:12]}... Agent选项={len(AGENT_OPTIONS)}个")
+    return True
+
+
 def get_repository_id() -> Optional[str]:
     """获取默认仓库 ID"""
     # 从 PROJECT_ID 解析仓库信息，或者使用默认仓库
@@ -148,15 +194,33 @@ def get_repository_id() -> Optional[str]:
     return None
 
 
+def get_repository_id() -> Optional[str]:
+    """获取默认仓库 ID"""
+    repo_owner = os.environ.get("GH_REPO_OWNER", "jiashaoshan")
+    repo_name = os.environ.get("GH_REPO_NAME", "openclaw-github-projects-scheduler")
+    
+    query = """
+    query($owner: String!, $name: String!) {
+        repository(owner: $owner, name: $name) {
+            id
+        }
+    }
+    """
+    
+    result = graphql_query(query, {"owner": repo_owner, "name": repo_name})
+    if result:
+        return result.get("repository", {}).get("id")
+    return None
+
+
 def create_issue(title: str, body: str) -> Optional[str]:
-    """创建正式 Issue（状态为 Open）"""
-    # 先获取仓库 ID
+    """创建正式 Issue 并添加到指定 Project"""
+    # 1. 先创建 Issue
     repository_id = get_repository_id()
     if not repository_id:
-        print("⚠️ 无法获取仓库 ID，尝试创建 Draft Issue...")
-        return create_draft_issue(title, body)
+        print("❌ 无法获取仓库 ID")
+        return None
     
-    # 创建正式 Issue
     mutation = """
     mutation($repositoryId: ID!, $title: String!, $body: String) {
         createIssue(
@@ -181,21 +245,17 @@ def create_issue(title: str, body: str) -> Optional[str]:
         "body": body
     })
     
-    if result:
-        issue = result.get("createIssue", {}).get("issue", {})
-        issue_id = issue.get("id")
-        issue_number = issue.get("number")
-        issue_url = issue.get("url")
-        print(f"✅ Issue 创建成功: #{issue_number} - {issue_url}")
-        
-        # 将 Issue 添加到 Project
-        return add_issue_to_project(issue_id)
-    return None
-
-
-def add_issue_to_project(issue_id: str) -> Optional[str]:
-    """将 Issue 添加到 Project"""
-    mutation = """
+    if not result:
+        return None
+    
+    issue = result.get("createIssue", {}).get("issue", {})
+    issue_id = issue.get("id")
+    issue_number = issue.get("number")
+    issue_url = issue.get("url")
+    print(f"✅ Issue #{issue_number} 已创建")
+    
+    # 2. 添加到指定 Project
+    mutation2 = """
     mutation($projectId: ID!, $contentId: ID!) {
         addProjectV2ItemById(
             input: {
@@ -210,43 +270,14 @@ def add_issue_to_project(issue_id: str) -> Optional[str]:
     }
     """
     
-    result = graphql_query(mutation, {
+    result2 = graphql_query(mutation2, {
         "projectId": PROJECT_ID,
         "contentId": issue_id
     })
     
-    if result:
-        item_id = result.get("addProjectV2ItemById", {}).get("item", {}).get("id")
-        return item_id
-    return None
-
-
-def create_draft_issue(title: str, body: str) -> Optional[str]:
-    """创建 Draft Issue（备用方案）"""
-    mutation = """
-    mutation($projectId: ID!, $title: String!, $body: String) {
-        addProjectV2DraftIssue(
-            input: {
-                projectId: $projectId
-                title: $title
-                body: $body
-            }
-        ) {
-            projectItem {
-                id
-            }
-        }
-    }
-    """
-    
-    result = graphql_query(mutation, {
-        "projectId": PROJECT_ID,
-        "title": title,
-        "body": body
-    })
-    
-    if result:
-        item_id = result.get("addProjectV2DraftIssue", {}).get("projectItem", {}).get("id")
+    if result2:
+        item_id = result2.get("addProjectV2ItemById", {}).get("item", {}).get("id")
+        print(f"✅ 已添加到项目: {item_id}")
         return item_id
     return None
 
@@ -430,6 +461,19 @@ def get_default_description(agent: str) -> str:
 
 def main():
     parser = argparse.ArgumentParser(description="GitHub Projects 任务创建工具")
+    
+    # 初始化：自动获取项目字段配置
+    print("正在解析项目字段配置...")
+    if PROJECT_ID:
+        resolve_project_fields()
+    else:
+        print("⚠️ 未配置 PROJECT_ID")
+    
+    # 检查字段是否已成功获取
+    if not AGENT_OPTIONS:
+        print("❌ 无法获取 Agent 字段选项，请检查 GH_TOKEN 和 project_id")
+        sys.exit(1)
+    
     parser.add_argument("--agent", default="marketing",
                       choices=list(AGENT_OPTIONS.keys()),
                       help="指定 Agent (默认: marketing)")

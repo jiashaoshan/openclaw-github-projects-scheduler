@@ -49,50 +49,15 @@ except ImportError:
 # 配置文件路径（项目目录）
 CONFIG_FILE = Path(__file__).parent / "config.json"
 
-# 默认值
-DEFAULT_CONFIG = {
-    "gh_token": "",
-    "project_id": "PVT_kwHOABOkaM4BVDrk",
-    "status_field_id": "PVTSSF_lAHOABOkaM4BVDrkzhQiE3c",
-    "agent_field_id": "PVTSSF_lAHOABOkaM4BVDrkzhQl13Y",
-    "start_date_field_id": "PVTF_lAHOABOkaM4BVDrkzhQiE-c",
-    "feishu_chat_id": "oc_xxx",
-    "ws_url": "ws://127.0.0.1:18789",
-    "gateway_token": ""
-}
-
 def load_config():
-    """加载配置，优先级：环境变量 > 配置文件 > 默认值"""
-    config = DEFAULT_CONFIG.copy()
+    """加载配置，只从配置文件读取"""
+    if not CONFIG_FILE.exists():
+        print(f"❌ 配置文件不存在: {CONFIG_FILE}")
+        sys.exit(1)
     
-    # 1. 从配置文件读取（项目目录，覆盖默认值）
-    if CONFIG_FILE.exists():
-        try:
-            with open(CONFIG_FILE) as f:
-                file_config = json.load(f)
-                # 只更新非空值
-                for key, value in file_config.items():
-                    if key in config and value:
-                        config[key] = value
-            print(f"✅ 已加载配置文件: {CONFIG_FILE}")
-        except Exception as e:
-            print(f"⚠️ 配置文件读取失败: {e}")
-    else:
-        print(f"⚠️ 配置文件不存在: {CONFIG_FILE}，使用默认值")
-    
-    # 2. 从环境变量读取（最高优先级，覆盖配置文件）
-    env_mappings = {
-        "gh_token": "GH_TOKEN",
-        "project_id": "GH_PROJECT_ID",
-        "feishu_chat_id": "GH_FEISHU_CHAT_ID",
-        "gateway_token": "OPENCLAW_GATEWAY_TOKEN"
-    }
-    
-    for config_key, env_key in env_mappings.items():
-        env_value = os.environ.get(env_key, "")
-        if env_value:
-            config[config_key] = env_value
-    
+    with open(CONFIG_FILE) as f:
+        config = json.load(f)
+    print(f"✅ 已加载配置文件: {CONFIG_FILE}")
     return config
 
 # 加载配置
@@ -101,27 +66,24 @@ CONFIG = load_config()
 # ============ 配置项 ============
 GH_TOKEN = CONFIG["gh_token"]
 PROJECT_ID = CONFIG["project_id"]
-STATUS_FIELD_ID = CONFIG["status_field_id"]
-AGENT_FIELD_ID = CONFIG["agent_field_id"]
-START_DATE_FIELD_ID = CONFIG["start_date_field_id"]
 FEISHU_CHAT_ID = CONFIG["feishu_chat_id"]
 
-STATUS_TODO = "f75ad846"
-STATUS_IN_PROGRESS = "47fc9ee4"
-STATUS_DONE = "98236657"
-STATUS_FAILED = "a2aba7a8"
+# 以下字段 ID 和选项 ID 将在运行时自动获取
+STATUS_FIELD_ID = None
+AGENT_FIELD_ID = None
+START_DATE_FIELD_ID = None
 
-AGENT_OPTIONS = {
-    "marketing": "66454f73",
-    "content": "607e4b84",
-    "dev": "6cd51e5a",
-    "consultant": "1eb83706",
-    "finance": "c3710345",
-    "operations": "9250d027",
-    "ops": "c54bb062",
-    "hermes": "461bd124",
-    "main": "ee8306f2"
-}
+# 状态选项 ID（运行时自动填充）
+STATUS_TODO = None
+STATUS_IN_PROGRESS = None
+STATUS_DONE = None
+STATUS_FAILED = None
+
+# Agent 选项映射：选项名称 -> 选项 ID（运行时自动填充）
+AGENT_OPTIONS = {}
+
+# 支持的 Agent 名称列表
+AGENT_NAMES = ["marketing", "content", "dev", "consultant", "finance", "operations", "ops", "hermes", "main"]
 
 # WebSocket配置
 DEFAULT_WS_URL = CONFIG["ws_url"]
@@ -384,6 +346,93 @@ def graphql_query(query: str, variables: Dict = None) -> Dict:
         return {}
 
 
+def resolve_project_fields():
+    """
+    自动获取项目的字段 ID 和选项 ID（根据字段名称），
+    取代硬编码的字段 ID 配置。
+    设置全局变量：STATUS_FIELD_ID, AGENT_FIELD_ID, START_DATE_FIELD_ID,
+    STATUS_TODO, STATUS_IN_PROGRESS, STATUS_DONE, STATUS_FAILED, AGENT_OPTIONS
+    """
+    global STATUS_FIELD_ID, AGENT_FIELD_ID, START_DATE_FIELD_ID
+    global STATUS_TODO, STATUS_IN_PROGRESS, STATUS_DONE, STATUS_FAILED
+    global AGENT_OPTIONS
+    
+    query = """
+    query($projectId: ID!) {
+        node(id: $projectId) {
+            ... on ProjectV2 {
+                fields(first: 20) {
+                    nodes {
+                        __typename
+                        ... on ProjectV2FieldCommon {
+                            name
+                            id
+                        }
+                        ... on ProjectV2SingleSelectField {
+                            name
+                            id
+                            options {
+                                id
+                                name
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    """
+    
+    data = graphql_query(query, {"projectId": PROJECT_ID})
+    if not data:
+        log("⚠️ 无法获取项目字段信息，使用配置文件中的硬编码值", force=True)
+        return False
+    
+    fields = data.get("node", {}).get("fields", {}).get("nodes", [])
+    
+    for field in fields:
+        field_name = field.get("name", "")
+        
+        # 找到 Status 字段及其选项
+        if field_name == "Status":
+            STATUS_FIELD_ID = field.get("id")
+            for opt in field.get("options", []):
+                opt_name = opt.get("name", "")
+                if opt_name == "Todo":
+                    STATUS_TODO = opt.get("id")
+                elif opt_name == "In progress":
+                    STATUS_IN_PROGRESS = opt.get("id")
+                elif opt_name == "Done":
+                    STATUS_DONE = opt.get("id")
+                elif opt_name == "Failed":
+                    STATUS_FAILED = opt.get("id")
+        
+        # 找到 Agent 字段及其选项
+        elif field_name == "Agent":
+            AGENT_FIELD_ID = field.get("id")
+            for opt in field.get("options", []):
+                opt_name = opt.get("name", "")
+                if opt_name in AGENT_NAMES:
+                    AGENT_OPTIONS[opt_name] = opt.get("id")
+        
+        # 找到 Start date 字段
+        elif field_name == "Start date":
+            START_DATE_FIELD_ID = field.get("id")
+    
+    # 验证是否全部获取成功
+    missing = []
+    if not STATUS_FIELD_ID or not STATUS_TODO: missing.append("Status字段")
+    if not AGENT_FIELD_ID or not AGENT_OPTIONS: missing.append("Agent字段")
+    if not START_DATE_FIELD_ID: missing.append("Start date字段")
+    
+    if missing:
+        log(f"⚠️ 项目字段解析不完整，缺少: {', '.join(missing)}", force=True)
+        return False
+    
+    log(f"✅ 已自动获取项目字段和选项 ID：Status={STATUS_FIELD_ID[:12]}... Agent选项={len(AGENT_OPTIONS)}个")
+    return True
+
+
 def get_project_items() -> List[Dict]:
     """获取项目中的所有任务"""
     query = """
@@ -457,6 +506,10 @@ def get_project_items() -> List[Dict]:
 
 def update_item_status(item_id: str, status_option_id: str) -> bool:
     """更新任务状态"""
+    if not STATUS_FIELD_ID:
+        log("⚠️ STATUS_FIELD_ID 未初始化，跳过状态更新")
+        return False
+    
     mutation = """
     mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
         updateProjectV2ItemFieldValue(
@@ -479,7 +532,13 @@ def update_item_status(item_id: str, status_option_id: str) -> bool:
         "optionId": status_option_id
     })
     
-    return "errors" not in result
+    if not result:
+        log(f"⚠️ 状态更新API调用失败 (optionId={status_option_id})")
+        return False
+    if "errors" in result:
+        log(f"⚠️ 状态更新GraphQL错误: {result['errors']}")
+        return False
+    return True
 
 
 def get_agent_name_by_option_id(option_id: str) -> Optional[str]:
@@ -495,6 +554,12 @@ async def check_and_trigger_tasks():
     """检查并触发任务（调度器主逻辑）"""
     log("\n" + "="*60)
     log("开始检查GitHub Projects任务...")
+    
+    # 首次运行时自动获取字段配置
+    if STATUS_FIELD_ID is None:
+        if not resolve_project_fields():
+            log("❌ 无法获取项目字段信息，请检查 GH_TOKEN 和 project_id", force=True)
+            return 0, 0
     
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     items = get_project_items()
@@ -578,14 +643,17 @@ async def check_and_trigger_tasks():
                 
                 if result.get("error"):
                     log(f"❌ Agent执行失败: {result['error']}")
-                    # Agent执行异常，调度器将状态回滚为 Todo
-                    update_item_status(item_id, STATUS_TODO)
+                    # Agent执行异常，调度器将状态更新为 Failed
+                    if update_item_status(item_id, STATUS_FAILED):
+                        log(f"状态已更新为 Failed")
                     failed += 1
                 else:
                     reply = "".join(result.get("chunks", []))
                     log(f"✅ Agent执行完成")
                     log(f"回复摘要: {reply[:200]}..." if len(reply) > 200 else f"回复: {reply}")
-                    log(f"Agent应已自行更新状态为 Done/Failed")
+                    # 调度器统一更新状态为 Done，不依赖 Agent 自行更新
+                    if update_item_status(item_id, STATUS_DONE):
+                        log(f"状态已更新为 Done")
                     triggered += 1
                         
             except Exception as e:
@@ -647,6 +715,12 @@ def main():
                 DEFAULT_GATEWAY_TOKEN = config.get("gateway", {}).get("auth", {}).get("token", "")
         except Exception:
             pass
+    
+    # 启动时自动解析项目字段
+    if not args.test_connection:
+        log("正在解析项目字段配置...")
+        if PROJECT_ID:
+            resolve_project_fields()
     
     if args.test_connection:
         success = asyncio.run(test_connection())
