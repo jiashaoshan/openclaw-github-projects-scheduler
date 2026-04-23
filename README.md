@@ -314,12 +314,15 @@ export GH_TOKEN="ghp_your_token"  # GitHub Token（必填）
 
 **GitHub Projects 任务**（任务来源: GitHub Projects）：
 - 任务ID格式：`PVTI_xxx`
-- **必须**自己更新GitHub状态
+- **必须** 更新GitHub任务状态
+- **必须** 添加GitHub任务评论
+- **必须** 群里汇报结果
 
 **直接对话派发任务**（任务来源: 直接对话派发）：
 - 任务ID格式：普通字符串或对话ID
 - **不需要**更新GitHub状态
-- 直接群里汇报即可
+- **不需要**更新GitHub评论
+- 直接群里汇报、返回结果即可
 
 ### GitHub Projects 任务执行流程
 
