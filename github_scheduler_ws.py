@@ -64,7 +64,8 @@ def load_config():
 CONFIG = load_config()
 
 # ============ 配置项 ============
-GH_TOKEN = CONFIG["gh_token"]
+# 优先从环境变量读取 GH_TOKEN，否则使用配置文件
+GH_TOKEN = os.environ.get("GH_TOKEN", CONFIG.get("gh_token", ""))
 PROJECT_ID = CONFIG["project_id"]
 FEISHU_CHAT_ID = CONFIG["feishu_chat_id"]
 
@@ -661,6 +662,8 @@ async def check_and_trigger_tasks():
                 # Agent执行异常，调度器将状态回滚为 Todo
                 update_item_status(item_id, STATUS_TODO)
                 failed += 1
+    except Exception as e:
+        log(f"❌ 任务处理循环异常: {e}")
     finally:
         # 群消息由各Agent自行发送，调度器不发
         await client.close()
