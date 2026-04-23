@@ -192,9 +192,10 @@ class OpenClawGatewayClient:
             }
         }
         """
-        # 构建任务消息
+        # 构建任务消息（包含状态更新指令）
         task_message = f"""执行GitHub Projects任务
 
+任务来源: GitHub Projects
 任务ID: {item_id}
 任务标题: {task_title}
 任务描述: {task_body}
@@ -203,7 +204,17 @@ class OpenClawGatewayClient:
 1. 首先读取 ~/.openclaw/workspace/ai-team/{agent_id}/SKILLS.md
 2. 根据任务描述找到匹配的技能路由
 3. 调用对应技能完成任务
-4. 完成后返回执行结果摘要
+4. 执行成功后，更新GitHub状态为Done：
+   python3 ~/.openclaw/workspace/skills/github-projects/task_scheduler_v2.py --complete {item_id}
+5. 如果执行失败，更新GitHub状态为Failed：
+   python3 ~/.openclaw/workspace/skills/github-projects/task_scheduler_v2.py --fail {item_id}:失败原因
+6. 在AI智能团队群里汇报结果（使用自己的飞书Bot账号）
+7. 返回执行结果摘要
+
+注意：
+- 只有GitHub Projects任务需要更新状态
+- 完成后立即处理，不要等待主Agent
+- 汇报时消息开头标注身份如【{agent_id}】
 """
 
         self.request_id += 1
@@ -488,7 +499,7 @@ async def check_and_trigger_tasks():
             
             log(f"\n处理任务: [{agent}] {title[:50]}...")
             
-            # 更新状态为 In progress
+            # 更新状态为 In progress（调度器只负责开始状态）
             if not update_item_status(item_id, STATUS_IN_PROGRESS):
                 log(f"❌ 更新状态失败，跳过任务")
                 failed += 1
@@ -497,6 +508,7 @@ async def check_and_trigger_tasks():
             log(f"状态已更新为 In progress")
             
             # 通过WebSocket执行Agent任务
+            # Agent自己会更新状态为 Done 或 Failed
             try:
                 result = await client.execute_agent_task(
                     agent_id=agent,
@@ -508,24 +520,20 @@ async def check_and_trigger_tasks():
                 
                 if result.get("error"):
                     log(f"❌ Agent执行失败: {result['error']}")
-                    update_item_status(item_id, STATUS_FAILED)
+                    # Agent执行异常，调度器将状态回滚为 Todo
+                    update_item_status(item_id, STATUS_TODO)
                     failed += 1
                 else:
                     reply = "".join(result.get("chunks", []))
-                    log(f"✅ Agent执行成功")
+                    log(f"✅ Agent执行完成")
                     log(f"回复摘要: {reply[:200]}..." if len(reply) > 200 else f"回复: {reply}")
-                    
-                    # 更新状态为 Done
-                    if update_item_status(item_id, STATUS_DONE):
-                        log(f"状态已更新为 Done")
-                        triggered += 1
-                    else:
-                        log(f"⚠️ 更新Done状态失败")
-                        failed += 1
+                    log(f"Agent应已自行更新状态为 Done/Failed")
+                    triggered += 1
                         
             except Exception as e:
                 log(f"❌ 执行Agent任务异常: {e}")
-                update_item_status(item_id, STATUS_FAILED)
+                # Agent执行异常，调度器将状态回滚为 Todo
+                update_item_status(item_id, STATUS_TODO)
                 failed += 1
     finally:
         await client.close()
