@@ -320,7 +320,7 @@ export GH_TOKEN="ghp_your_token"  # GitHub Token（必填）
 
 ```python
 import subprocess
-"""# 添加任务执行评论
+# 添加任务执行评论
 subprocess.run([
     "python3",
     "~/.openclaw/workspace/skills/github-projects/task_scheduler_v2.py",
@@ -340,7 +340,7 @@ subprocess.run([
 
 -- 详细说明
 [详细描述执行过程和结果]
-"""
+
 ])
 ```
 
