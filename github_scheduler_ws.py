@@ -265,20 +265,19 @@ class OpenClawGatewayClient:
 请按以下步骤执行：
 1. 首先读取 ~/.openclaw/workspace/ai-team/{agent_id}/SKILLS.md
 2. 根据任务描述找到匹配的技能路由
-3. 调用对应技能完成任务
-4. **添加任务执行评论**（必须）：
-   - 使用 GitHub API 或 feishu_doc_comments 工具在任务下添加评论
-   - 评论内容包含：执行摘要、关键结果、遇到的问题
-5. 执行成功后，更新GitHub状态为Done：
+3. **执行任务前**，在AI智能团队群里汇报开始（使用自己的飞书Bot账号，消息开头标注身份如【{agent_id}】）
+4. 调用对应技能完成任务
+5. **先更新状态为Done**（防止重复执行）：
    python3 ~/.openclaw/workspace/skills/github-projects/task_scheduler_v2.py --complete {item_id} --agent {agent_id}
-6. 如果执行失败，更新GitHub状态为Failed：
-   python3 ~/.openclaw/workspace/skills/github-projects/task_scheduler_v2.py --fail {item_id}:失败原因 --agent {agent_id}
-7. 在AI智能团队群里汇报结果（使用自己的飞书Bot账号）
-8. 返回执行结果摘要
+6. 如果执行失败，更新状态为Failed：
+   python3 ~/.openclaw/workspace/skills/github-projects/task_scheduler_v2.py --fail "{item_id}:失败原因" --agent {agent_id}
+7. **再添加任务执行评论**：
+   python3 ~/.openclaw/workspace/skills/github-projects/task_scheduler_v2.py --comment {item_id} --body "执行摘要..."
+8. 在AI智能团队群里汇报执行结果（使用自己的飞书Bot账号）
+9. 返回执行结果摘要
 
 注意：
-- 只有GitHub Projects任务需要更新状态
-- **必须先添加评论，再更新状态**
+- **必须先更新状态，再添加评论**
 - 完成后立即处理，不要等待主Agent
 - 汇报时消息开头标注身份如【{agent_id}】
 """
