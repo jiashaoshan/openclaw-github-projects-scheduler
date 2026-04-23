@@ -325,9 +325,40 @@ export GH_TOKEN="ghp_your_token"  # GitHub Token（必填）
 
 当执行 GitHub Projects 自动任务时，子Agent必须按以下顺序执行：
 
-**第1步：添加任务执行评论（必须）**
+**第1步：更新任务状态为 Done（必须，防止重复执行）**
 
-在更新状态前，必须先添加评论记录执行情况：
+先更新状态，防止调度器重复触发：
+
+```python
+import subprocess
+# 标记任务完成
+subprocess.run([
+    "python3",
+    "~/.openclaw/workspace/skills/github-projects/task_scheduler_v2.py",
+    "--complete",
+    "任务ID",  # 从任务描述中获取
+    "--agent",
+    "你的agent名称"  # dev/content/marketing等
+])
+```
+
+**执行失败时**：
+```python
+import subprocess
+# 标记任务失败（会自动添加失败评论）
+subprocess.run([
+    "python3",
+    "~/.openclaw/workspace/skills/github-projects/task_scheduler_v2.py",
+    "--fail",
+    "任务ID:失败原因",
+    "--agent",
+    "你的agent名称"
+])
+```
+
+**第2步：添加任务执行评论**
+
+状态更新后，添加评论记录执行情况：
 
 ```python
 import subprocess
@@ -351,43 +382,12 @@ subprocess.run([
 
 **详细说明**
 [详细描述执行过程和结果]
-
-])
-```
-
-**第2步：更新GitHub状态**
-
-**执行成功时**：
-```python
-import subprocess
-# 标记任务完成
-subprocess.run([
-    "python3", 
-    "~/.openclaw/workspace/skills/github-projects/task_scheduler_v2.py",
-    "--complete", 
-    "任务ID",  # 从任务描述中获取
-    "--agent",
-    "你的agent名称"  # dev/content/marketing等
-])
-```
-
-**执行失败时**：
-```python
-import subprocess
-# 标记任务失败（会自动添加失败评论）
-subprocess.run([
-    "python3",
-    "~/.openclaw/workspace/skills/github-projects/task_scheduler_v2.py", 
-    "--fail",
-    "任务ID:失败原因",
-    "--agent",
-    "你的agent名称"
-])
+"""])
 ```
 
 **重要顺序**：
-1. **先添加评论** → `--comment` + `--body`
-2. **再更新状态** → `--complete` 或 `--fail`
+1. **先更新状态** → `--complete` 或 `--fail`（防止重复执行）
+2. **再添加评论** → `--comment` + `--body`
 3. **群里汇报** → 使用飞书Bot
 4. **返回结果** → 给主Agent
 
