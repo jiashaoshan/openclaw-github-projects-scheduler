@@ -127,7 +127,7 @@ export GH_TOKEN="ghp_your_github_token_here"
 export GH_PROJECT_ID="PVT_kwHOABOkaM4BVDrk"
 
 # 飞书群ID（可选，默认使用配置）
-export GH_FEISHU_CHAT_ID="oc_1d05adec7a7ee7b58bf89b9ecc718378xxxxxxxxxxxxx"
+export GH_FEISHU_CHAT_ID="oc_1d05adec7a7ee7b58bf89b9ecc718378"
 
 # OpenClaw Gateway Token（可选，自动从 ~/.openclaw/openclaw.json 读取）
 export OPENCLAW_GATEWAY_TOKEN=""
@@ -335,7 +335,11 @@ export GH_TOKEN="ghp_your_token"  # GitHub Token（必填）
 按‘群内发言规则’调用方式向飞书群汇报，汇报内容模版：
 
 ```
-【你的Agent名称】接受任务【任务ID】开始执行，时间【2026-XX-XX XX:XX:XX】>>>>>>>>>>>>
+**执行Agent**: [你的Agent名称]
+**接收时间**: 2026-XX-XX XX:XX:XX
+**任务名称**: 【任务名称】
+**任务摘要**
+任务概要描述
 ```
 注意：群ID可以从```~/.openclaw/workspace/skills/github-projects/config.json中的{feishu_chat_id}```获取
 
@@ -409,7 +413,7 @@ subprocess.run([
 ```
 **执行Agent**: [你的Agent名称]
 **执行时间**: 2026-XX-XX XX:XX:XX
-**执行结果**: 成功!
+**执行结果**: ✅ 成功
 **执行摘要**
 - 完成的任务：[简要描述]
 - 关键结果：[关键产出]
