@@ -337,6 +337,7 @@ export GH_TOKEN="ghp_your_token"  # GitHub Token（必填）
 ```
 【你的Agent名称】接受任务【任务ID】开始执行，时间【2026-XX-XX XX:XX:XX】>>>>>>>>>>>>
 ```
+注意：群ID可以从```~/.openclaw/workspace/skills/github-projects/config.json中的{feishu_chat_id}```获取
 
 **第2步：任务执行**
 
@@ -414,6 +415,7 @@ subprocess.run([
 - 关键结果：[关键产出]
 - 遇到的问题：[如有]
 ```
+注意：群ID可以从```~/.openclaw/workspace/skills/github-projects/config.json中的{feishu_chat_id}```获取
 
 **GitHub Projects 任务重要顺序**：
 1. **群里汇报** → 汇报开始（用自己的飞书bot）
@@ -437,12 +439,10 @@ message({
   accountId: "你的agent名称",  // 必须指定：dev/content/marketing等
   action: "send",
   channel: "feishu",
-  target: "{feishu_chat_id}",  // 群ID
+  target: "oc_1d05aXXX",  // 群ID
   message: "【你的身份】汇报内容..."
 })
 ```
-注意：群ID可以从```~/.openclaw/workspace/skills/github-projects/task_scheduler_v2.py中的{feishu_chat_id}```获取
-
 
 **关键要求**：
 - 必须指定 accountId 为自己的 agent ID
