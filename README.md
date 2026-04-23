@@ -314,7 +314,7 @@ message({
 - 消息开头标注身份【开发】/【内容创作】等
 - 先更新GitHub状态，再发群消息
 - 同时返回完整结果给主Agent
-```
+
 
 ---
 
@@ -379,6 +379,7 @@ message({
 
 ---
 
+
 ## 文件结构
 
 ~/.openclaw/workspace/skills/github-projects/
@@ -400,6 +401,8 @@ message({
     └── ops/SKILLS.md
 
 ---
+
+最终修改@20260423
 
 ## 许可证
 
