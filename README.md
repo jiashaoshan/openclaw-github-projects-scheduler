@@ -294,7 +294,7 @@ export GH_TOKEN="ghp_your_token"  # GitHub Token（必填）
 
 在每个 Agent 的 `~/.openclaw/workspace/ai-team/{agent}/SKILLS.md` 中添加：
 
-```markdown
+
 ## 任务执行规范
 
 ### 任务类型判断
@@ -320,8 +320,7 @@ export GH_TOKEN="ghp_your_token"  # GitHub Token（必填）
 
 ```python
 import subprocess
-
-# 添加任务执行评论
+"""# 添加任务执行评论
 subprocess.run([
     "python3",
     "~/.openclaw/workspace/skills/github-projects/task_scheduler_v2.py",
@@ -330,16 +329,16 @@ subprocess.run([
     "--body",
     """## ✅ 任务执行完成
 
-**执行Agent**: [你的Agent名称]
-**执行时间**: 2026-XX-XX XX:XX
-**执行结果**: 成功
+--执行Agent--: [你的Agent名称]
+--执行时间--: 2026-XX-XX XX:XX
+--执行结果--: 成功
 
-### 执行摘要
+-- 执行摘要
 - 完成的任务：[简要描述]
 - 关键结果：[关键产出]
 - 遇到的问题：[如有]
 
-### 详细说明
+-- 详细说明
 [详细描述执行过程和结果]
 """
 ])
