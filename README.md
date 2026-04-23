@@ -139,13 +139,25 @@ vim ~/.openclaw/github-projects-config.json
 ```
 
 **步骤3：配置系统 crontab**
+
 ```bash
 # 编辑 crontab
 crontab -e
 
 # 添加以下行（每分钟执行一次，需设置 GH_TOKEN）
-* * * * * export GH_TOKEN="ghp_your_github_token_here"; /usr/bin/python3 /Users/jiashaoshan/github_scheduler.py --once >> /tmp/gh_scheduler_ws.log 2>&1
+# ⚠️ 注意：必须使用安装了 websockets 的 Python 路径
+* * * * * export GH_TOKEN="ghp_your_github_token_here"; /Library/Frameworks/Python.framework/Versions/3.12/bin/python3 /Users/jiashaoshan/github_scheduler.py --once >> /tmp/gh_scheduler_ws.log 2>&1
 ```
+
+**⚠️ Python 路径说明：**
+- cron 的 PATH 和 shell 不同，必须指定完整 Python 路径
+- 使用 `which python3` 查看你的 Python 路径
+- 确保该 Python 已安装 websockets：`python3 -c "import websockets; print('OK')"`
+- 常见路径示例：
+  - macOS 系统 Python: `/usr/bin/python3`（可能没有 websockets）
+  - Homebrew Python: `/usr/local/bin/python3`
+  - pyenv Python: `/Users/xxx/.pyenv/shims/python3`
+  - Framework Python: `/Library/Frameworks/Python.framework/Versions/3.12/bin/python3`
 
 **步骤4：测试 WebSocket 连接**
 ```bash
