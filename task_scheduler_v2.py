@@ -31,8 +31,36 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any
 
 # ============ 配置 ============
-GH_TOKEN = os.environ.get("GH_TOKEN", "")
-PROJECT_ID = "PVT_kwHOABOkaM4BVDrk"
+CONFIG_FILE = Path.home() / ".openclaw" / "github-projects-config.json"
+
+def load_config():
+    """加载配置，优先级：配置文件 > 环境变量 > 默认值"""
+    config = {
+        "gh_token": "",
+        "project_id": "PVT_kwHOABOkaM4BVDrk",
+    }
+    
+    # 从配置文件读取
+    if CONFIG_FILE.exists():
+        try:
+            with open(CONFIG_FILE) as f:
+                file_config = json.load(f)
+                for key, value in file_config.items():
+                    if key in config and value:
+                        config[key] = value
+        except Exception:
+            pass
+    
+    # 从环境变量读取（覆盖配置文件）
+    env_token = os.environ.get("GH_TOKEN", "")
+    if env_token:
+        config["gh_token"] = env_token
+    
+    return config
+
+CONFIG = load_config()
+GH_TOKEN = CONFIG["gh_token"]
+PROJECT_ID = CONFIG["project_id"]
 STATUS_FIELD_ID = "PVTSSF_lAHOABOkaM4BVDrkzhQiE3c"
 
 STATUS_TODO = "f75ad846"
