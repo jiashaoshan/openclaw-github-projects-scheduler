@@ -382,6 +382,7 @@ message({
 
 ## 文件结构
 
+```
 ~/.openclaw/workspace/skills/github-projects/
 ├── github_scheduler_ws.py    # v3主调度器（WebSocket版，含群汇报）
 ├── test_openclaw_gateway_ws.py  # WebSocket测试脚本
@@ -399,7 +400,7 @@ message({
     ├── finance/SKILLS.md
     ├── operations/SKILLS.md
     └── ops/SKILLS.md
-
+```
 ---
 
 最终修改@20260423
