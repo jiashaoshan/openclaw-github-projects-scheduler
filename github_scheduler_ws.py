@@ -556,21 +556,7 @@ async def check_and_trigger_tasks():
         log("❌ WebSocket连接失败，无法执行任务")
         return 0, len(pending_tasks)
     
-    # 【汇报1】调度器启动 - 发现有任务，在群里汇报
-    try:
-        result = await client.request(
-            "message.send",
-            {
-                "channel": "feishu",
-                "target": f"chat:{FEISHU_CHAT_ID}",
-                "message": f"🤖 【调度器启动】发现 {len(pending_tasks)} 个待处理任务，开始调度执行..."
-            },
-            timeout=10
-        )
-        if result.get("type") == "res" and result.get("ok"):
-            print(f"[群消息] 发送成功")
-    except Exception as e:
-        print(f"[群消息] 异常: {e}")
+    # 群消息由各Agent自行发送，调度器不发
     
     try:
         for task in pending_tasks:
@@ -618,44 +604,7 @@ async def check_and_trigger_tasks():
                 update_item_status(item_id, STATUS_TODO)
                 failed += 1
     finally:
-        # 【汇报2】执行完成 - 在群里汇报执行结果（在关闭连接前）
-        if triggered > 0 or failed > 0:
-            # 构建任务执行摘要
-            task_summary = []
-            for i, task in enumerate(pending_tasks[:5], 1):  # 最多显示5个
-                status_icon = "✅" if i <= triggered else "❌"
-                task_summary.append(f"{status_icon} [{task['agent']}] {task['title'][:30]}...")
-            
-            if len(pending_tasks) > 5:
-                task_summary.append(f"... 还有 {len(pending_tasks) - 5} 个任务")
-            
-            summary_text = "\n".join(task_summary)
-            
-            try:
-                result = await client.request(
-                    "message.send",
-                    {
-                        "channel": "feishu",
-                        "target": f"chat:{FEISHU_CHAT_ID}",
-                        "message": f"""📋 【任务调度完成】
-
-本次调度统计：
-• 发现任务：{len(pending_tasks)} 个
-• 成功执行：{triggered} 个
-• 执行失败：{failed} 个
-
-任务执行清单：
-{summary_text}
-
-⏳ 各 Agent 正在执行中，完成后将分别汇报结果..."""
-                    },
-                    timeout=10
-                )
-                if result.get("type") == "res" and result.get("ok"):
-                    print(f"[群消息] 发送成功")
-            except Exception as e:
-                print(f"[群消息] 异常: {e}")
-        
+        # 群消息由各Agent自行发送，调度器不发
         await client.close()
     
     log(f"\n本次检查完成: 成功 {triggered} 个, 失败 {failed} 个")
