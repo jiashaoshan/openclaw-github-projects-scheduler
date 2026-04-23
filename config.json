@@ -1,5 +1,5 @@
 {
-  "_comment": "GitHub Projects 调度器配置文件 - 敏感信息请通过环境变量传入",
+  "_comment": "GitHub Projects 调度器配置文件",
   "gh_token": "",
   "project_id": "PVT_kwHOABOkaM4BVeax",
   "feishu_chat_id": "oc_cda196e974ad35b4927cf3c10db540c8",

@@ -31,39 +31,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any
 
 # ============ 配置 ============
-# 配置文件路径（项目目录）
-CONFIG_FILE = Path(__file__).parent / "config.json"
-
-def load_config():
-    """加载配置，优先级：配置文件 > 环境变量 > 默认值"""
-    config = {
-        "gh_token": "",
-        "project_id": "PVT_kwHOABOkaM4BVDrk",
-    }
-    
-    # 从配置文件读取（项目目录）
-    if CONFIG_FILE.exists():
-        try:
-            with open(CONFIG_FILE) as f:
-                file_config = json.load(f)
-                for key, value in file_config.items():
-                    if key in config and value:
-                        config[key] = value
-        except Exception as e:
-            print(f"⚠️ 配置文件读取失败: {e}")
-    
-    # 从环境变量读取（覆盖配置文件）
-    env_token = os.environ.get("GH_TOKEN", "")
-    if env_token:
-        config["gh_token"] = env_token
-    
-    return config
-
-CONFIG = load_config()
-GH_TOKEN = CONFIG["gh_token"]
-PROJECT_ID = CONFIG["project_id"]
-REPO_OWNER = CONFIG.get("repo_owner", "jiashaoshan")
-REPO_NAME = CONFIG.get("repo_name", "openclaw-github-projects-scheduler")
+GH_TOKEN = os.environ.get("GH_TOKEN", "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")
+PROJECT_ID = "PVT_kwHOABOkaM4BVDrk"
 STATUS_FIELD_ID = "PVTSSF_lAHOABOkaM4BVDrkzhQiE3c"
 
 STATUS_TODO = "f75ad846"
@@ -89,34 +58,12 @@ AGENT_OPTIONS = {
 TASKS_DIR = Path("/tmp/gh_tasks")
 STATE_FILE = "/tmp/gh_scheduler_state.json"
 
-# 飞书群配置（AI智能团队群）
-FEISHU_CHAT_ID = "oc_xxx"  # 需要替换为实际群ID
-
 VERBOSE = False
 
 def log(msg: str, force: bool = False):
     if VERBOSE or force:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         print(f"[{timestamp}] {msg}", flush=True)
-
-
-def send_group_message(content: str):
-    """发送群消息到飞书"""
-    try:
-        import subprocess
-        result = subprocess.run(
-            ["openclaw", "message", "send", "--channel", "feishu",
-             "--target", f"chat:{FEISHU_CHAT_ID}", "--message", content],
-            capture_output=True,
-            text=True,
-            timeout=10
-        )
-        if result.returncode == 0:
-            log(f"群消息发送成功")
-        else:
-            log(f"群消息发送失败: {result.stderr}")
-    except Exception as e:
-        log(f"发送群消息异常: {e}")
 
 # ============ GitHub API ============
 
@@ -240,7 +187,7 @@ def update_item_status(item_id: str, status_option_id: str) -> bool:
         "optionId": status_option_id
     })
     
-    return bool(result) and "errors" not in result
+    return "errors" not in result
 
 
 def get_agent_name_by_option_id(option_id: str) -> Optional[str]:
@@ -248,50 +195,6 @@ def get_agent_name_by_option_id(option_id: str) -> Optional[str]:
         if oid == option_id:
             return name
     return None
-
-
-def add_task_comment(item_id: str, body: str) -> bool:
-    """添加任务评论（通过 REST API 评论 Issue）"""
-    # 先通过 item_id 获取 Issue number
-    query = """
-    query($id: ID!) {
-        node(id: $id) {
-            ... on ProjectV2Item {
-                content {
-                    ... on Issue { number }
-                }
-            }
-        }
-    }
-    """
-    result = graphql_query(query, {"id": item_id})
-    if not result:
-        log(f"无法获取 Issue number: {item_id}")
-        return False
-    
-    issue_num = result.get("node",{}).get("content",{}).get("number")
-    if not issue_num:
-        log(f"无法解析 Issue number: {item_id}")
-        return False
-    
-    # 通过 REST API 添加评论
-    url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/issues/{issue_num}/comments"
-    headers = {
-        "Authorization": f"Bearer {GH_TOKEN}",
-        "Accept": "application/vnd.github+json"
-    }
-    try:
-        resp = requests.post(url, headers=headers, json={"body": body}, timeout=30)
-        if resp.status_code == 201:
-            log(f"✅ 评论已添加到 Issue #{issue_num}")
-            return True
-        else:
-            log(f"❌ 评论添加失败: {resp.status_code} {resp.text[:100]}")
-            return False
-    except Exception as e:
-        log(f"❌ 评论请求异常: {e}")
-        return False
-
 
 # ============ 任务文件管理 ============
 
@@ -401,7 +304,6 @@ def check_and_trigger_tasks():
     items = get_project_items()
     
     triggered = 0
-    pending_tasks = []  # 用于记录本次创建的任务
     
     for item in items:
         item_id = item["id"]
@@ -440,25 +342,10 @@ def check_and_trigger_tasks():
         body = item.get("body", "")
         if create_task_file(agent, title, body, item_id):
             triggered += 1
-            pending_tasks.append({"agent": agent, "title": title})
             log(f"✅ 已创建任务文件: [{agent}] {title[:40]}...")
         else:
             # 创建失败，回滚状态
             update_item_status(item_id, STATUS_TODO)
-    
-    # 【群汇报】有任务时才汇报
-    if triggered > 0:
-        # 构建任务清单
-        task_list = "\n".join([f"• [{t['agent']}] {t['title'][:40]}..." for t in pending_tasks[:5]])
-        if len(pending_tasks) > 5:
-            task_list += f"\n... 还有 {len(pending_tasks) - 5} 个任务"
-        
-        send_group_message(f"""🤖 【调度器启动】发现 {triggered} 个新任务
-
-任务清单：
-{task_list}
-
-⏳ 任务文件已创建，等待 Agent 执行...""")
     
     log(f"\n本次检查完成: 触发 {triggered} 个任务")
     log("="*60)
@@ -473,8 +360,6 @@ def main():
     parser.add_argument("--verbose", action="store_true", help="详细输出")
     parser.add_argument("--complete", metavar="ITEM_ID", help="标记任务完成（Agent调用）")
     parser.add_argument("--fail", metavar="ITEM_ID", help="标记任务失败（Agent调用）")
-    parser.add_argument("--comment", metavar="ITEM_ID", help="添加任务评论（Agent调用）")
-    parser.add_argument("--body", type=str, help="评论内容（用于--comment）")
     parser.add_argument("--agent", default="main", help="指定Agent（用于--complete/--fail）")
     
     args = parser.parse_args()
@@ -482,19 +367,7 @@ def main():
     global VERBOSE
     VERBOSE = args.verbose
     
-    if args.comment:
-        # Agent调用：添加评论
-        if not args.body:
-            log(f"❌ 添加评论失败: 缺少 --body 参数", True)
-            sys.exit(1)
-        
-        if add_task_comment(args.comment, args.body):
-            log(f"✅ 评论已添加: {args.comment}", True)
-        else:
-            log(f"❌ 评论添加失败: {args.comment}", True)
-            sys.exit(1)
-    
-    elif args.complete:
+    if args.complete:
         # Agent调用：标记任务完成
         if update_item_status(args.complete, STATUS_DONE):
             complete_task_file(args.agent, args.complete, success=True)
@@ -505,20 +378,12 @@ def main():
     
     elif args.fail:
         # Agent调用：标记任务失败
-        # 解析失败原因（格式: item_id:失败原因）
-        fail_parts = args.fail.split(":", 1)
-        item_id = fail_parts[0]
-        reason = fail_parts[1] if len(fail_parts) > 1 else ""
-        
-        # 先添加失败评论
-        if reason:
-            add_task_comment(item_id, f"❌ 任务执行失败\n\n**失败原因**: {reason}")
-        
-        if update_item_status(item_id, STATUS_FAILED):
-            complete_task_file(args.agent, item_id, success=False, result=reason)
-            log(f"✅ 任务已标记失败: {item_id}", True)
+        reason = ""  # 可以从其他地方获取失败原因
+        if update_item_status(args.fail, STATUS_FAILED):
+            complete_task_file(args.agent, args.fail, success=False, result=reason)
+            log(f"✅ 任务已标记失败: {args.fail}", True)
         else:
-            log(f"❌ 标记失败失败: {item_id}", True)
+            log(f"❌ 标记失败失败: {args.fail}", True)
             sys.exit(1)
     
     else:
