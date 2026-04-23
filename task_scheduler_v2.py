@@ -62,6 +62,8 @@ def load_config():
 CONFIG = load_config()
 GH_TOKEN = CONFIG["gh_token"]
 PROJECT_ID = CONFIG["project_id"]
+REPO_OWNER = CONFIG.get("repo_owner", "jiashaoshan")
+REPO_NAME = CONFIG.get("repo_name", "openclaw-github-projects-scheduler")
 STATUS_FIELD_ID = "PVTSSF_lAHOABOkaM4BVDrkzhQiE3c"
 
 STATUS_TODO = "f75ad846"
@@ -238,7 +240,7 @@ def update_item_status(item_id: str, status_option_id: str) -> bool:
         "optionId": status_option_id
     })
     
-    return "errors" not in result
+    return bool(result) and "errors" not in result
 
 
 def get_agent_name_by_option_id(option_id: str) -> Optional[str]:
@@ -249,26 +251,46 @@ def get_agent_name_by_option_id(option_id: str) -> Optional[str]:
 
 
 def add_task_comment(item_id: str, body: str) -> bool:
-    """添加任务评论"""
-    mutation = """
-    mutation($itemId: ID!, $body: String!) {
-        addProjectV2ItemComment(
-            input: {
-                itemId: $itemId
-                body: $body
+    """添加任务评论（通过 REST API 评论 Issue）"""
+    # 先通过 item_id 获取 Issue number
+    query = """
+    query($id: ID!) {
+        node(id: $id) {
+            ... on ProjectV2Item {
+                content {
+                    ... on Issue { number }
+                }
             }
-        ) {
-            clientMutationId
         }
     }
     """
+    result = graphql_query(query, {"id": item_id})
+    if not result:
+        log(f"无法获取 Issue number: {item_id}")
+        return False
     
-    result = graphql_query(mutation, {
-        "itemId": item_id,
-        "body": body
-    })
+    issue_num = result.get("node",{}).get("content",{}).get("number")
+    if not issue_num:
+        log(f"无法解析 Issue number: {item_id}")
+        return False
     
-    return result is not None and "errors" not in result
+    # 通过 REST API 添加评论
+    url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/issues/{issue_num}/comments"
+    headers = {
+        "Authorization": f"Bearer {GH_TOKEN}",
+        "Accept": "application/vnd.github+json"
+    }
+    try:
+        resp = requests.post(url, headers=headers, json={"body": body}, timeout=30)
+        if resp.status_code == 201:
+            log(f"✅ 评论已添加到 Issue #{issue_num}")
+            return True
+        else:
+            log(f"❌ 评论添加失败: {resp.status_code} {resp.text[:100]}")
+            return False
+    except Exception as e:
+        log(f"❌ 评论请求异常: {e}")
+        return False
 
 
 # ============ 任务文件管理 ============
