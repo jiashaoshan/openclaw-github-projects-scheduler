@@ -84,69 +84,40 @@ pip install websockets requests
 export GH_TOKEN="ghp_your_github_token_here"
 
 # GitHub Projects ID（可选，默认使用配置）
-export GH_PROJECT_ID="PVT_kwHOABOkaM4BVDrk"
+export GH_PROJECT_ID="PVT_kwHOxxxx"
 
 # 飞书群ID（可选，默认使用配置）
-export GH_FEISHU_CHAT_ID="oc_1d05adec7a7ee7b58bf89b9ecc718378"
+export GH_FEISHU_CHAT_ID="oc_1d05adecxxxxx"
 
-# OpenClaw Gateway Token（可选，自动从 ~/.openclaw/openclaw.json 读取）
+# OpenClaw Gateway Token（可选，自动从 ~/.openclaw/workspace/skills/github-projects/config.json 读取）
 export OPENCLAW_GATEWAY_TOKEN=""
 ```
 
 **配置文件：**
-项目目录下的 `config.json` 文件：
+
+配置文件 `~/.openclaw/workspace/skills/github-projects/config.json` ：
+
 ```json
 {
-  "gh_token": "",
-  "project_id": "PVT_kwHOABOkaM4BVDrk",
-  "feishu_chat_id": "oc_1d05adec7a7ee7b58bf89b9ecc718378",
-  "ws_url": "ws://127.0.0.1:18789"
+  "_comment": "GitHub Projects 调度器配置文件",
+  "gh_token": "ghp_EBC7Tdxxxx",
+  "project_id": "PVT_kwHxxxx",
+  "feishu_chat_id": "oc_cda19xxxx",
+  "ws_url": "ws://127.0.0.1:18789",
+  "gateway_token": "aa77e05531faxxxx"
 }
+
 ```
 
-**配置优先级：** 环境变量 > 配置文件(config.json) > 代码默认值
+**配置优先级：** 配置文件(config.json) > 环境变量 > 代码默认值
 
 ### 2. 安装调度器
 
 **步骤1：复制调度器脚本**
+
 ```bash
 cp ~/.openclaw/workspace/skills/github-projects/github_scheduler_ws.py ~/github_scheduler.py
 chmod +x ~/github_scheduler.py
-```
-
-**步骤2：配置调度器**
-
-方式A - 使用环境变量（推荐用于敏感信息）：
-```bash
-# 添加到 ~/.zshrc 或 ~/.bash_profile
-
-# GitHub Token（必填）
-export GH_TOKEN="ghp_your_github_token_here"
-
-# GitHub Projects ID（可选，默认使用配置）
-export GH_PROJECT_ID="PVT_kwHOABOkaM4BVDrk"
-
-# 飞书群ID（可选，默认使用配置）
-export GH_FEISHU_CHAT_ID="oc_1d05adec7a7ee7b58bf89b9ecc718378"
-
-# OpenClaw Gateway Token（可选，自动从 ~/.openclaw/openclaw.json 读取）
-export OPENCLAW_GATEWAY_TOKEN=""
-```
-
-方式B - 使用配置文件（推荐用于固定配置）：
-```bash
-# 编辑配置文件
-vim ~/.openclaw/github-projects-config.json
-```
-
-配置文件示例：
-```json
-{
-  "gh_token": "ghp_your_github_token_here",
-  "project_id": "PVT_kwHOABOkaM4BVDrk",
-  "feishu_chat_id": "oc_1d05adec7a7ee7b58bf89b9ecc718378xxxxxxxxxxxxx",
-  "ws_url": "ws://127.0.0.1:18789"
-}
 ```
 
 **步骤3：配置系统 crontab**
@@ -335,7 +306,7 @@ export GH_TOKEN="ghp_your_token"  # GitHub Token（必填）
 按‘群内发言规则’调用方式向飞书群汇报，汇报内容模版：
 
 ```
-**执行Agent**: [你的Agent名称]
+✅ 我接收到了一个任务
 **接收时间**: 2026-XX-XX XX:XX:XX
 **任务名称**: [任务名称]
 **任务摘要**
@@ -411,7 +382,7 @@ subprocess.run([
 按‘群内发言规则’调用方式向飞书群汇报，汇报内容模版：
 
 ```
-**执行Agent**: [你的Agent名称]
+✅ 我完成了一个任务 
 **执行时间**: 2026-XX-XX XX:XX:XX
 **执行结果**: ✅ 成功
 **执行摘要**
