@@ -534,7 +534,7 @@ class OpenClawGatewayClient:
 请按以下步骤执行：
 1. 读取 ~/.openclaw/workspace/ai-team/{agent_id}/SKILLS.md
 2. 根据任务描述找到匹配的技能路由
-3. 按照SKILLS.md中「GitHub Projects 任务执行流程」的顺序执行（包括群内汇报、状态更新、评论添加等）
+3. 按照SKILLS.md中「任务执行规范」-「GitHub Projects 任务执行流程」的按步骤顺序执行
 4. 返回执行结果摘要
 
 注意：
@@ -578,7 +578,9 @@ class OpenClawGatewayClient:
                             run_id = payload.get("runId")
                             log(f"会话创建成功: {session_key[:40]}..." if session_key and len(session_key) > 40 else f"会话创建成功: {session_key}")
                         else:
-                            return {"error": msg.get("error", {}), "chunks": []}
+                            error_detail = msg.get("error", {})
+                            log(f"❌ 会话创建失败: {error_detail}")
+                            return {"error": error_detail, "chunks": []}
 
                 # 收集 agent 回复事件
                 event_type = msg.get("event", "")
@@ -661,13 +663,17 @@ async def _execute_single_task(client: OpenClawGatewayClient, task: Dict) -> Dic
     agent = task["agent"]
     
     log(f"\n[并行] 处理任务: [{agent}] {title[:50]}...")
+    log(f"[并行] 任务详情: item_id={item_id[:30]}...")
     
     # 更新状态为 In progress
+    log(f"[并行] 正在更新状态为 In progress...")
     if not update_item_status(item_id, STATUS_IN_PROGRESS):
         log(f"[并行] ❌ 更新状态失败，跳过任务: {title[:30]}...")
         return {"item_id": item_id, "success": False, "error": "update_status_failed"}
+    log(f"[并行] ✅ 状态已更新为 In progress")
     
     try:
+        log(f"[并行] 开始执行 Agent 任务...")
         result = await client.execute_agent_task(
             agent_id=agent,
             task_title=title,
@@ -676,19 +682,29 @@ async def _execute_single_task(client: OpenClawGatewayClient, task: Dict) -> Dic
             timeout=300
         )
         
+        log(f"[并行] Agent 返回结果: {result.keys()}")
+        
         if result.get("error"):
-            log(f"[并行] ❌ Agent执行失败: {result['error']}")
+            error_msg = result.get("error")
+            log(f"[并行] ❌ Agent执行失败: {error_msg}")
+            log(f"[并行] 正在更新状态为 Failed...")
             update_item_status(item_id, STATUS_FAILED)
-            return {"item_id": item_id, "success": False, "error": result.get("error")}
+            log(f"[并行] ✅ 状态已更新为 Failed")
+            return {"item_id": item_id, "success": False, "error": error_msg}
         else:
             reply = "".join(result.get("chunks", []))
-            log(f"[并行] ✅ [{agent}] 执行完成: {title[:50]}... ({result.get('elapsed', 0):.1f}s)")
+            elapsed = result.get('elapsed', 0)
+            log(f"[并行] ✅ [{agent}] 执行完成: {title[:50]}... ({elapsed:.1f}s)")
+            log(f"[并行] 正在更新状态为 Done...")
             update_item_status(item_id, STATUS_DONE)
+            log(f"[并行] ✅ 状态已更新为 Done")
             return {"item_id": item_id, "success": True, "reply": reply}
             
     except Exception as e:
         log(f"[并行] ❌ 执行异常: {e}")
+        log(f"[并行] 正在回滚状态为 Todo...")
         update_item_status(item_id, STATUS_TODO)  # 回滚，等待下次重试
+        log(f"[并行] ✅ 状态已回滚为 Todo")
         return {"item_id": item_id, "success": False, "error": str(e)}
 
 
@@ -697,16 +713,30 @@ async def _execute_task_with_own_ws(task: Dict) -> Dict:
     为单个任务创建独立 WebSocket 连接并执行。
     这样多个任务可以真正并行，互不影响消息接收。
     """
+    item_id = task["item_id"]
+    title = task["title"][:30]
+    
+    log(f"\n[并行] ========== 开始处理任务: {title}... ==========")
+    log(f"[并行] 创建 WebSocket 连接...")
+    
     client = OpenClawGatewayClient()
     if not await client.connect():
-        log(f"[并行] ❌ WebSocket连接失败: {task['title'][:30]}...")
-        update_item_status(task["item_id"], STATUS_TODO)  # 回滚
-        return {"item_id": task["item_id"], "success": False, "error": "ws_connect_failed"}
+        log(f"[并行] ❌ WebSocket连接失败: {title}...")
+        log(f"[并行] 正在回滚状态为 Todo...")
+        update_item_status(item_id, STATUS_TODO)  # 回滚
+        log(f"[并行] ✅ 状态已回滚为 Todo")
+        return {"item_id": item_id, "success": False, "error": "ws_connect_failed"}
+    
+    log(f"[并行] ✅ WebSocket连接成功")
     
     try:
-        return await _execute_single_task(client, task)
+        result = await _execute_single_task(client, task)
+        log(f"[并行] ========== 任务处理完成: {title}... ==========")
+        return result
     finally:
+        log(f"[并行] 关闭 WebSocket 连接...")
         await client.close()
+        log(f"[并行] ✅ WebSocket连接已关闭")
 
 
 async def check_and_trigger_tasks():
@@ -742,10 +772,15 @@ async def _check_and_trigger_tasks_impl():
             return 0, 0
     
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    log(f"[调度器] 今天日期: {today}")
+    
     items = get_project_items()
+    log(f"[调度器] 从 GitHub Projects 获取到 {len(items)} 个任务")
     
     # 先过滤出需要处理的任务
     pending_tasks = []
+    skipped = {"not_todo": 0, "no_start_date": 0, "not_due": 0, "no_agent": 0}
+    
     for item in items:
         item_id = item["id"]
         title = item["title"]
@@ -755,20 +790,24 @@ async def _check_and_trigger_tasks_impl():
         
         # 只处理 Todo 状态的任务
         if status != STATUS_TODO:
+            skipped["not_todo"] += 1
             continue
         
         # 检查开始时间 - 必须有 start date 且已到期才执行
         if not start_date:
             log(f"⏳ 任务无开始时间，跳过: {title[:30]}...")
+            skipped["no_start_date"] += 1
             continue
         if start_date > today:
             log(f"⏳ 任务未到期: {title[:30]}... (开始时间: {start_date})")
+            skipped["not_due"] += 1
             continue
         
         # 获取Agent名称
         agent = get_agent_name_by_option_id(agent_option_id)
         if not agent:
             log(f"⚠️ 未知Agent: {agent_option_id}, 任务: {title[:30]}...")
+            skipped["no_agent"] += 1
             continue
         
         pending_tasks.append({
@@ -777,36 +816,59 @@ async def _check_and_trigger_tasks_impl():
             "body": item.get("body", ""),
             "agent": agent
         })
+        log(f"[调度器] ✅ 任务符合条件: [{agent}] {title[:40]}... (start_date: {start_date})")
+    
+    log(f"[调度器] 任务筛选统计:")
+    log(f"[调度器]   - 跳过（非Todo）: {skipped['not_todo']}")
+    log(f"[调度器]   - 跳过（无开始时间）: {skipped['no_start_date']}")
+    log(f"[调度器]   - 跳过（未到期）: {skipped['not_due']}")
+    log(f"[调度器]   - 跳过（未知Agent）: {skipped['no_agent']}")
+    log(f"[调度器]   - 符合条件: {len(pending_tasks)}")
     
     if not pending_tasks:
-        log("没有待处理的任务")
+        log("[调度器] 没有待处理的任务")
         log("="*60)
         return 0, 0
     
-    log(f"发现 {len(pending_tasks)} 个待处理任务")
+    log(f"[调度器] 开始处理 {len(pending_tasks)} 个待处理任务")
     
     # 分批并行执行：每批最多 MAX_CONCURRENT_TASKS 个任务并发
     triggered = 0
     failed = 0
     
+    log(f"\n[调度器] 开始分批并行执行，共 {len(pending_tasks)} 个任务，每批最多 {MAX_CONCURRENT_TASKS} 个")
+    
     for batch_start in range(0, len(pending_tasks), MAX_CONCURRENT_TASKS):
         batch = pending_tasks[batch_start:batch_start + MAX_CONCURRENT_TASKS]
-        log(f"\n📦 批次 {batch_start // MAX_CONCURRENT_TASKS + 1}: 并发执行 {len(batch)} 个任务...")
+        batch_num = batch_start // MAX_CONCURRENT_TASKS + 1
+        total_batches = (len(pending_tasks) + MAX_CONCURRENT_TASKS - 1) // MAX_CONCURRENT_TASKS
+        
+        log(f"\n[调度器] ========== 批次 {batch_num}/{total_batches}: {len(batch)} 个任务 ==========")
+        for i, task in enumerate(batch):
+            log(f"[调度器]   任务 {i+1}: [{task['agent']}] {task['title'][:40]}...")
         
         # 并行执行本批次所有任务（每个任务独立 WebSocket 连接）
+        log(f"[调度器] 启动 asyncio.gather 并行执行...")
         results = await asyncio.gather(
             *[_execute_task_with_own_ws(task) for task in batch],
             return_exceptions=True
         )
+        log(f"[调度器] asyncio.gather 完成，处理结果...")
         
-        for r in results:
+        for i, r in enumerate(results):
+            task_title = batch[i]['title'][:30]
             if isinstance(r, Exception):
-                log(f"[并行] ❌ 任务异常: {r}")
+                log(f"[调度器] ❌ 任务 {i+1} 异常: {r}")
                 failed += 1
             elif r.get("success"):
+                log(f"[调度器] ✅ 任务 {i+1} 成功: {task_title}")
                 triggered += 1
             else:
+                error = r.get('error', 'Unknown')
+                log(f"[调度器] ❌ 任务 {i+1} 失败: {task_title}, 错误: {error}")
                 failed += 1
+        
+        log(f"[调度器] ========== 批次 {batch_num} 完成 ==========")
     
     log(f"\n本次检查完成: 成功 {triggered} 个, 失败 {failed} 个")
     log("="*60)
