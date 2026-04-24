@@ -688,11 +688,11 @@ async def _check_and_trigger_tasks_impl():
             continue
         
         # 检查开始时间 - 必须有 start date 且已到期才执行
-        if not start_date or start_date > today:
-            if not start_date:
-                log(f"⏳ 任务无开始时间，跳过: {title[:30]}...")
-            else:
-                log(f"⏳ 任务未到期: {title[:30]}... (开始时间: {start_date})")
+        if not start_date:
+            log(f"⏳ 任务无开始时间，跳过: {title[:30]}...")
+            continue
+        if start_date > today:
+            log(f"⏳ 任务未到期: {title[:30]}... (开始时间: {start_date})")
             continue
         
         # 获取Agent名称
