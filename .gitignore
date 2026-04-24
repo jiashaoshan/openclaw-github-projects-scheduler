@@ -29,3 +29,11 @@ Thumbs.db
 # 测试文件
 test_output/
 temp/
+check_tasks.py
+fix_shebang.sh
+run.sh
+run_scheduler.sh
+test_complete.sh
+test_fail.sh
+test_monitor.sh
+test_query.py
