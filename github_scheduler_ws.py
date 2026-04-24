@@ -461,12 +461,56 @@ class OpenClawGatewayClient:
         self.received_events = []
     
     async def connect(self) -> bool:
-        """连接到 WebSocket Gateway"""
+        """连接到 WebSocket Gateway 并完成握手"""
         try:
             headers = {"Authorization": f"Bearer {self.token}"} if self.token else None
             self.ws = await websockets.connect(self.ws_url, additional_headers=headers)
             log(f"✅ WebSocket已连接: {self.ws_url}")
-            return True
+            
+            # 发送 connect 握手
+            self.request_id += 1
+            connect_req_id = f"connect-{self.request_id}"
+            connect_frame = {
+                "type": "req",
+                "id": connect_req_id,
+                "method": "connect",
+                "params": {
+                    "minProtocol": 3,
+                    "maxProtocol": 3,
+                    "client": {
+                        "id": "gateway-client",
+                        "platform": "python",
+                        "mode": "backend",
+                        "version": "1.0.0"
+                    },
+                    "role": "operator",
+                    "scopes": ["operator.admin", "operator.read", "operator.write", "operator.approvals", "operator.pairing"],
+                    "auth": {
+                        "token": self.token
+                    }
+                }
+            }
+            await self.ws.send(json.dumps(connect_frame))
+            log(f"[WebSocket] 发送 connect 握手...")
+            
+            # 等待 connect 响应
+            t0 = time.time()
+            while time.time() - t0 < 5:
+                try:
+                    raw = await asyncio.wait_for(self.ws.recv(), timeout=2)
+                    msg = json.loads(raw)
+                    if msg.get("id") == connect_req_id:
+                        if msg.get("ok"):
+                            log(f"[WebSocket] ✅ connect 握手成功")
+                            return True
+                        else:
+                            log(f"[WebSocket] ❌ connect 握手失败: {msg.get('error')}")
+                            return False
+                except asyncio.TimeoutError:
+                    continue
+            
+            log(f"[WebSocket] ❌ connect 握手超时")
+            return False
         except Exception as e:
             log(f"❌ WebSocket连接失败: {e}")
             return False
