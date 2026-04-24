@@ -766,12 +766,86 @@ async def test_connection():
         return False
 
 
+# ============ Agent 命令行工具（供SKILLS.md调用） ============
+
+def complete_task(item_id: str) -> bool:
+    """标记任务为完成（供Agent调用）"""
+    log(f"标记任务完成: {item_id}")
+    if not resolve_project_fields():
+        log("❌ 无法获取项目字段信息")
+        return False
+    return update_item_status(item_id, STATUS_DONE)
+
+
+def fail_task(item_id: str) -> bool:
+    """标记任务为失败（供Agent调用）"""
+    log(f"标记任务失败: {item_id}")
+    if not resolve_project_fields():
+        log("❌ 无法获取项目字段信息")
+        return False
+    return update_item_status(item_id, STATUS_FAILED)
+
+
+def add_task_comment(item_id: str, body: str) -> bool:
+    """添加任务评论（供Agent调用）"""
+    log(f"添加评论到任务: {item_id}")
+    
+    # 首先获取任务的 Issue/PR ID
+    query = """
+    query($itemId: ID!) {
+        node(id: $itemId) {
+            ... on ProjectV2Item {
+                content {
+                    ... on Issue { id number }
+                    ... on PullRequest { id number }
+                }
+            }
+        }
+    }
+    """
+    
+    result = graphql_query(query, {"itemId": item_id})
+    if not result:
+        log("❌ 无法获取任务内容ID")
+        return False
+    
+    content = result.get("node", {}).get("content", {})
+    issue_id = content.get("id") if content else None
+    
+    if not issue_id:
+        log("❌ 任务没有关联的Issue/PR")
+        return False
+    
+    # 添加评论
+    mutation = """
+    mutation($subjectId: ID!, $body: String!) {
+        addComment(input: {subjectId: $subjectId, body: $body}) {
+            commentEdge { node { id } }
+        }
+    }
+    """
+    
+    result = graphql_query(mutation, {"subjectId": issue_id, "body": body})
+    if result and "errors" not in result:
+        log("✅ 评论添加成功")
+        return True
+    else:
+        log(f"❌ 评论添加失败: {result.get('errors', 'Unknown error')}")
+        return False
+
+
 # ============ 命令行接口 ============
 def main():
     parser = argparse.ArgumentParser(description="GitHub Projects WebSocket 调度器 v3")
     parser.add_argument("--once", action="store_true", help="运行一次后退出")
     parser.add_argument("--verbose", action="store_true", help="详细输出")
     parser.add_argument("--test-connection", action="store_true", help="测试WebSocket连接")
+    
+    # Agent 调用参数
+    parser.add_argument("--complete", metavar="ITEM_ID", help="标记任务完成（Agent调用）")
+    parser.add_argument("--fail", metavar="ITEM_ID", help="标记任务失败（Agent调用）")
+    parser.add_argument("--comment", metavar="ITEM_ID", help="添加评论到任务（Agent调用，配合--body）")
+    parser.add_argument("--body", default="", help="评论内容（配合--comment使用）")
     
     args = parser.parse_args()
     
@@ -788,6 +862,22 @@ def main():
                 DEFAULT_GATEWAY_TOKEN = config.get("gateway", {}).get("auth", {}).get("token", "")
         except Exception:
             pass
+    
+    # 处理 Agent 调用命令（--complete, --fail, --comment）
+    if args.complete:
+        success = complete_task(args.complete)
+        sys.exit(0 if success else 1)
+    
+    if args.fail:
+        success = fail_task(args.fail)
+        sys.exit(0 if success else 1)
+    
+    if args.comment:
+        if not args.body:
+            print("❌ --comment 需要配合 --body 参数使用")
+            sys.exit(1)
+        success = add_task_comment(args.comment, args.body)
+        sys.exit(0 if success else 1)
     
     # 启动时自动解析项目字段
     if not args.test_connection:
