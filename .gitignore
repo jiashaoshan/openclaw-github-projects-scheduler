@@ -37,3 +37,6 @@ test_complete.sh
 test_fail.sh
 test_monitor.sh
 test_query.py
+
+# 配置文件（含敏感Token）
+config.json
