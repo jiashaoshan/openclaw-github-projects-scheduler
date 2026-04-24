@@ -92,7 +92,9 @@ DEFAULT_GATEWAY_TOKEN = CONFIG["gateway_token"]
 
 VERBOSE = False
 
-# ============ 日志 ============
+# ============ 锁文件（防止多轮cron重叠） ============
+LOCK_FILE = Path("/tmp/gh_scheduler.lock")
+MAX_CONCURRENT_TASKS = 5  # 同时最多执行的Agent任务数
 def log(msg: str, force: bool = False):
     if VERBOSE or force:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -358,6 +360,11 @@ def resolve_project_fields():
     global STATUS_TODO, STATUS_IN_PROGRESS, STATUS_DONE, STATUS_FAILED
     global AGENT_OPTIONS
     
+    # 首先尝试从配置文件加载硬编码值
+    STATUS_FIELD_ID = CONFIG.get("status_field_id")
+    AGENT_FIELD_ID = CONFIG.get("agent_field_id")
+    START_DATE_FIELD_ID = CONFIG.get("start_date_field_id")
+    
     query = """
     query($projectId: ID!) {
         node(id: $projectId) {
@@ -386,11 +393,17 @@ def resolve_project_fields():
     
     data = graphql_query(query, {"projectId": PROJECT_ID})
     if not data:
-        log("⚠️ 无法获取项目字段信息，使用配置文件中的硬编码值", force=True)
-        return False
+        log("⚠️ 无法从API获取项目字段信息，使用配置文件中的硬编码值", force=True)
+        # 使用硬编码的选项ID（这些需要手动从GitHub Projects界面获取）
+        STATUS_TODO = CONFIG.get("status_todo_id", "f0fd8bec")
+        STATUS_IN_PROGRESS = CONFIG.get("status_in_progress_id", "0fded4e8")
+        STATUS_DONE = CONFIG.get("status_done_id", "98236657")
+        STATUS_FAILED = CONFIG.get("status_failed_id", "7c1d073d")
+        # Agent选项映射需要从配置或环境变量获取
+        AGENT_OPTIONS = CONFIG.get("agent_options", {})
+        return True  # 使用硬编码值继续执行
     
     fields = data.get("node", {}).get("fields", {}).get("nodes", [])
-    
     for field in fields:
         field_name = field.get("name", "")
         
@@ -428,6 +441,21 @@ def resolve_project_fields():
     
     if missing:
         log(f"⚠️ 项目字段解析不完整，缺少: {', '.join(missing)}", force=True)
+        # 尝试从配置文件加载选项ID
+        STATUS_TODO = CONFIG.get("status_todo_id")
+        STATUS_IN_PROGRESS = CONFIG.get("status_in_progress_id")
+        STATUS_DONE = CONFIG.get("status_done_id")
+        STATUS_FAILED = CONFIG.get("status_failed_id")
+        AGENT_OPTIONS = CONFIG.get("agent_options", {})
+        
+        if STATUS_TODO and STATUS_IN_PROGRESS and STATUS_DONE:
+            log(f"✅ 已从配置文件加载选项 ID", force=True)
+            return True
+        
+        log("❌ 无法获取项目选项 ID，请执行以下步骤之一：", force=True)
+        log("   方案1: gh auth refresh -s read:project -s project", force=True)
+        log("   方案2: 访问 https://github.com/settings/tokens 创建带 read:project 的 Token", force=True)
+        log("   方案3: 手动在 config.json 中添加 status_todo_id, status_in_progress_id, status_done_id", force=True)
         return False
     
     log(f"✅ 已自动获取项目字段和选项 ID：Status={STATUS_FIELD_ID[:12]}... Agent选项={len(AGENT_OPTIONS)}个")
@@ -551,8 +579,89 @@ def get_agent_name_by_option_id(option_id: str) -> Optional[str]:
 
 
 # ============ 主调度逻辑 ============
+
+async def _execute_single_task(client: OpenClawGatewayClient, task: Dict) -> Dict:
+    """
+    执行单个 Agent 任务（并行调用单元）
+    每个任务使用独立的 WebSocket 连接，避免消息串扰。
+    """
+    item_id = task["item_id"]
+    title = task["title"]
+    body = task["body"]
+    agent = task["agent"]
+    
+    log(f"\n[并行] 处理任务: [{agent}] {title[:50]}...")
+    
+    # 更新状态为 In progress
+    if not update_item_status(item_id, STATUS_IN_PROGRESS):
+        log(f"[并行] ❌ 更新状态失败，跳过任务: {title[:30]}...")
+        return {"item_id": item_id, "success": False, "error": "update_status_failed"}
+    
+    try:
+        result = await client.execute_agent_task(
+            agent_id=agent,
+            task_title=title,
+            task_body=body,
+            item_id=item_id,
+            timeout=300
+        )
+        
+        if result.get("error"):
+            log(f"[并行] ❌ Agent执行失败: {result['error']}")
+            update_item_status(item_id, STATUS_FAILED)
+            return {"item_id": item_id, "success": False, "error": result.get("error")}
+        else:
+            reply = "".join(result.get("chunks", []))
+            log(f"[并行] ✅ [{agent}] 执行完成: {title[:50]}... ({result.get('elapsed', 0):.1f}s)")
+            update_item_status(item_id, STATUS_DONE)
+            return {"item_id": item_id, "success": True, "reply": reply}
+            
+    except Exception as e:
+        log(f"[并行] ❌ 执行异常: {e}")
+        update_item_status(item_id, STATUS_TODO)  # 回滚，等待下次重试
+        return {"item_id": item_id, "success": False, "error": str(e)}
+
+
+async def _execute_task_with_own_ws(task: Dict) -> Dict:
+    """
+    为单个任务创建独立 WebSocket 连接并执行。
+    这样多个任务可以真正并行，互不影响消息接收。
+    """
+    client = OpenClawGatewayClient()
+    if not await client.connect():
+        log(f"[并行] ❌ WebSocket连接失败: {task['title'][:30]}...")
+        update_item_status(task["item_id"], STATUS_TODO)  # 回滚
+        return {"item_id": task["item_id"], "success": False, "error": "ws_connect_failed"}
+    
+    try:
+        return await _execute_single_task(client, task)
+    finally:
+        await client.close()
+
+
 async def check_and_trigger_tasks():
-    """检查并触发任务（调度器主逻辑）"""
+    """检查并触发任务（调度器主逻辑 - 并行版本）"""
+    
+    # 锁文件检查：防止上一轮还没执行完，下一轮又开始了
+    if LOCK_FILE.exists():
+        log("⏳ 上一轮调度还在执行中，跳过本轮")
+        return 0, 0
+    
+    # 创建锁文件（进程退出时清理由 finally 保证，但这里只设标志）
+    LOCK_FILE.write_text(datetime.now().isoformat())
+    
+    try:
+        return await _check_and_trigger_tasks_impl()
+    finally:
+        # 释放锁文件，无论成功/异常都清理
+        try:
+            LOCK_FILE.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
+async def _check_and_trigger_tasks_impl():
+    """调度器内部实现（已加锁保护）"""
     log("\n" + "="*60)
     log("开始检查GitHub Projects任务...")
     
@@ -564,9 +673,6 @@ async def check_and_trigger_tasks():
     
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     items = get_project_items()
-    
-    triggered = 0
-    failed = 0
     
     # 先过滤出需要处理的任务
     pending_tasks = []
@@ -606,67 +712,28 @@ async def check_and_trigger_tasks():
     
     log(f"发现 {len(pending_tasks)} 个待处理任务")
     
-    # 连接WebSocket
-    client = OpenClawGatewayClient()
-    if not await client.connect():
-        log("❌ WebSocket连接失败，无法执行任务")
-        return 0, len(pending_tasks)
+    # 分批并行执行：每批最多 MAX_CONCURRENT_TASKS 个任务并发
+    triggered = 0
+    failed = 0
     
-    # 群消息由各Agent自行发送，调度器不发
-    
-    try:
-        for task in pending_tasks:
-            item_id = task["item_id"]
-            title = task["title"]
-            body = task["body"]
-            agent = task["agent"]
-            
-            log(f"\n处理任务: [{agent}] {title[:50]}...")
-            
-            # 更新状态为 In progress（调度器只负责开始状态）
-            if not update_item_status(item_id, STATUS_IN_PROGRESS):
-                log(f"❌ 更新状态失败，跳过任务")
+    for batch_start in range(0, len(pending_tasks), MAX_CONCURRENT_TASKS):
+        batch = pending_tasks[batch_start:batch_start + MAX_CONCURRENT_TASKS]
+        log(f"\n📦 批次 {batch_start // MAX_CONCURRENT_TASKS + 1}: 并发执行 {len(batch)} 个任务...")
+        
+        # 并行执行本批次所有任务（每个任务独立 WebSocket 连接）
+        results = await asyncio.gather(
+            *[_execute_task_with_own_ws(task) for task in batch],
+            return_exceptions=True
+        )
+        
+        for r in results:
+            if isinstance(r, Exception):
+                log(f"[并行] ❌ 任务异常: {r}")
                 failed += 1
-                continue
-            
-            log(f"状态已更新为 In progress")
-            
-            # 通过WebSocket执行Agent任务
-            # Agent自己会更新状态为 Done 或 Failed
-            try:
-                result = await client.execute_agent_task(
-                    agent_id=agent,
-                    task_title=title,
-                    task_body=body,
-                    item_id=item_id,
-                    timeout=300  # 5分钟超时
-                )
-                
-                if result.get("error"):
-                    log(f"❌ Agent执行失败: {result['error']}")
-                    # Agent执行异常，调度器将状态更新为 Failed
-                    if update_item_status(item_id, STATUS_FAILED):
-                        log(f"状态已更新为 Failed")
-                    failed += 1
-                else:
-                    reply = "".join(result.get("chunks", []))
-                    log(f"✅ Agent执行完成")
-                    log(f"回复摘要: {reply[:200]}..." if len(reply) > 200 else f"回复: {reply}")
-                    # 调度器统一更新状态为 Done，不依赖 Agent 自行更新
-                    if update_item_status(item_id, STATUS_DONE):
-                        log(f"状态已更新为 Done")
-                    triggered += 1
-                        
-            except Exception as e:
-                log(f"❌ 执行Agent任务异常: {e}")
-                # Agent执行异常，调度器将状态回滚为 Todo
-                update_item_status(item_id, STATUS_TODO)
+            elif r.get("success"):
+                triggered += 1
+            else:
                 failed += 1
-    except Exception as e:
-        log(f"❌ 任务处理循环异常: {e}")
-    finally:
-        # 群消息由各Agent自行发送，调度器不发
-        await client.close()
     
     log(f"\n本次检查完成: 成功 {triggered} 个, 失败 {failed} 个")
     log("="*60)
