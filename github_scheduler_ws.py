@@ -105,7 +105,7 @@ VERBOSE = False
 LOCK_FILE = Path("/tmp/gh_scheduler.lock")
 
 # 最大并发任务数
-MAX_CONCURRENT_TASKS = 3
+MAX_CONCURRENT_TASKS = 5
 
 # ============ 日志 ============
 def log(msg: str, force: bool = False):
