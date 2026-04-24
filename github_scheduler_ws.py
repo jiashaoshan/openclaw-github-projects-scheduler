@@ -24,6 +24,15 @@ GitHub Projects WebSocket 调度器 v3
     
     # 测试WebSocket连接
     python3 github_scheduler_ws.py --test-connection
+    
+    # Agent 调用（标记任务完成）
+    python3 github_scheduler_ws.py --complete ITEM_ID
+    
+    # Agent 调用（标记任务失败）
+    python3 github_scheduler_ws.py --fail ITEM_ID
+    
+    # Agent 调用（添加评论）
+    python3 github_scheduler_ws.py --comment ITEM_ID --body "评论内容"
 """
 
 import asyncio
@@ -92,237 +101,23 @@ DEFAULT_GATEWAY_TOKEN = CONFIG["gateway_token"]
 
 VERBOSE = False
 
-# ============ 锁文件（防止多轮cron重叠） ============
+# 锁文件路径（防止重复运行）
 LOCK_FILE = Path("/tmp/gh_scheduler.lock")
-MAX_CONCURRENT_TASKS = 5  # 同时最多执行的Agent任务数
+
+# 最大并发任务数
+MAX_CONCURRENT_TASKS = 3
+
+# ============ 日志 ============
 def log(msg: str, force: bool = False):
     if VERBOSE or force:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         print(f"[{timestamp}] {msg}", flush=True)
 
 
-# 兼容旧代码的同步调用方式（在异步函数中使用）
-def send_group_message(content: str):
-    """发送群消息到飞书（同步包装，用于非异步上下文）"""
-    # 注意：此函数只能在异步上下文中使用，通过 check_and_trigger_tasks 中的 client 调用
-    # 这里只是打印日志，实际发送在 check_and_trigger_tasks 中完成
-    print(f"[群消息] 准备发送: {content[:50]}...")
-
-
-# ============ OpenClaw WebSocket 客户端 ============
-class OpenClawGatewayClient:
-    """OpenClaw Gateway WebSocket 客户端"""
-
-    def __init__(self, url: str = None, token: str = None):
-        self.url = url or DEFAULT_WS_URL
-        self.token = token or DEFAULT_GATEWAY_TOKEN
-        self.ws = None
-        self.connect_nonce = None
-        self.request_id = 0
-        self.pending_requests = {}
-        self.received_events = []
-
-    async def connect(self) -> bool:
-        """连接 Gateway 并完成握手"""
-        try:
-            self.ws = await websockets.connect(self.url)
-            # 等待 connect.challenge
-            while True:
-                raw = await asyncio.wait_for(self.ws.recv(), timeout=10)
-                evt = json.loads(raw)
-                if evt.get("event") == "connect.challenge":
-                    self.connect_nonce = evt.get("payload", {}).get("nonce")
-                    break
-                self.received_events.append(evt)
-
-            # 发送 connect 请求
-            await self._send_connect()
-            return True
-        except Exception as e:
-            log(f"WebSocket连接失败: {e}")
-            return False
-
-    async def _send_connect(self):
-        """发送 connect 握手请求"""
-        req_id = str(uuid.uuid4())
-        frame = {
-            "type": "req",
-            "id": req_id,
-            "method": "connect",
-            "params": {
-                "minProtocol": 3,
-                "maxProtocol": 3,
-                "client": {
-                    "id": "gateway-client",
-                    "version": "1.0.0-test",
-                    "platform": sys.platform,
-                    "mode": "backend"
-                },
-                "auth": {
-                    "token": self.token
-                } if self.token else {},
-                "role": "operator",
-                "scopes": ["operator.admin"],
-                "caps": []
-            }
-        }
-        await self.ws.send(json.dumps(frame))
-
-        # 等待 hello.ok
-        while True:
-            raw = await asyncio.wait_for(self.ws.recv(), timeout=10)
-            msg = json.loads(raw)
-            if msg.get("id") == req_id:
-                if msg.get("type") == "res":
-                    return msg
-                elif msg.get("type") == "err":
-                    raise Exception(f"connect failed: {msg}")
-            self.received_events.append(msg)
-
-    async def request(self, method: str, params: Dict = None, timeout: int = 60) -> Dict:
-        """发送 RPC 请求并等待响应"""
-        self.request_id += 1
-        req_id = f"req-{self.request_id}"
-        frame = {
-            "type": "req",
-            "id": req_id,
-            "method": method,
-            "params": params or {}
-        }
-        await self.ws.send(json.dumps(frame))
-
-        t0 = time.time()
-        while time.time() - t0 < timeout:
-            try:
-                raw = await asyncio.wait_for(self.ws.recv(), timeout=2)
-                msg = json.loads(raw)
-                if msg.get("id") == req_id:
-                    if msg.get("type") == "res" and msg.get("ok"):
-                        return {"type": "res", "ok": True, "result": msg.get("payload", {})}
-                    return msg
-                self.received_events.append(msg)
-            except asyncio.TimeoutError:
-                continue
-        return {"type": "timeout", "method": method}
-
-    async def execute_agent_task(self, agent_id: str, task_title: str, task_body: str, 
-                                  item_id: str, timeout: int = 300) -> Dict:
-        """
-        执行Agent任务并等待完成
-        
-        发送的任务消息格式：
-        {
-            "github_task": {
-                "item_id": "...",
-                "title": "...",
-                "body": "..."
-            }
-        }
-        """
-        # 构建任务消息（包含状态更新指令）
-        task_message = f"""执行GitHub Projects任务
-
-任务来源: GitHub Projects
-任务ID: {item_id}
-任务标题: {task_title}
-任务描述: {task_body}
-
-请按以下步骤执行：
-1. 读取 ~/.openclaw/workspace/ai-team/{agent_id}/SKILLS.md
-2. 根据任务描述找到匹配的技能路由
-3. 按照SKILLS.md中「GitHub Projects 任务执行流程」的顺序执行（包括群内汇报、状态更新、评论添加等）
-4. 返回执行结果摘要
-
-注意：
-- 所有执行细节（汇报格式、命令参数、执行顺序）以SKILLS.md中的「任务执行规范」为准
-- 完成后立即处理，不要等待主Agent
-"""
-
-        self.request_id += 1
-        create_req_id = f"session-create-{self.request_id}"
-        create_frame = {
-            "type": "req",
-            "id": create_req_id,
-            "method": "sessions.create",
-            "params": {
-                "agentId": agent_id,
-                "message": task_message
-            }
-        }
-        
-        log(f"发送任务到Agent [{agent_id}]: {task_title[:50]}...")
-        await self.ws.send(json.dumps(create_frame))
-
-        chunks = []
-        session_key = None
-        run_id = None
-        t0 = time.time()
-        first_chunk = None
-        final_state = None
-
-        while time.time() - t0 < timeout:
-            try:
-                raw = await asyncio.wait_for(self.ws.recv(), timeout=2)
-                msg = json.loads(raw)
-
-                # 检查 sessions.create 响应
-                if msg.get("id") == create_req_id:
-                    if msg.get("type") == "res":
-                        if msg.get("ok"):
-                            payload = msg.get("payload", {})
-                            session_key = payload.get("key")
-                            run_id = payload.get("runId")
-                            log(f"会话创建成功: {session_key[:40]}..." if session_key and len(session_key) > 40 else f"会话创建成功: {session_key}")
-                        else:
-                            return {"error": msg.get("error", {}), "chunks": []}
-
-                # 收集 agent 回复事件
-                event_type = msg.get("event", "")
-                payload = msg.get("payload", {})
-
-                # chat 事件包含回复内容
-                if event_type == "chat" and isinstance(payload, dict):
-                    state = payload.get("state", "")
-                    message = payload.get("message", {})
-                    if isinstance(message, dict):
-                        content_list = message.get("content", [])
-                        if isinstance(content_list, list) and len(content_list) > 0:
-                            text = content_list[0].get("text", "")
-                            if text:
-                                if first_chunk is None:
-                                    first_chunk = time.time() - t0
-                                    log(f"首字节延迟: {first_chunk:.2f}s")
-                                chunks.append(text)
-                    
-                    final_state = state
-                    # final/complete 状态表示流结束
-                    if state in ("final", "complete"):
-                        log(f"任务执行完成，总耗时: {time.time() - t0:.1f}s")
-                        break
-
-                self.received_events.append(msg)
-            except asyncio.TimeoutError:
-                continue
-            except Exception as e:
-                log(f"接收消息出错: {e}")
-                break
-
-        return {
-            "session_key": session_key,
-            "run_id": run_id,
-            "chunks": chunks,
-            "final_state": final_state,
-            "ttft": first_chunk,
-            "elapsed": time.time() - t0
-        }
-
-    async def close(self):
-        if self.ws:
-            await self.ws.close()
-
-
 # ============ GitHub API ============
+
 def graphql_query(query: str, variables: Dict = None) -> Dict:
+    """执行 GraphQL 查询"""
     headers = {
         "Authorization": f"Bearer {GH_TOKEN}",
         "Accept": "application/vnd.github+json"
@@ -504,39 +299,46 @@ def get_project_items() -> List[Dict]:
     """
     
     data = graphql_query(query, {"projectId": PROJECT_ID})
-    items = data.get("node", {}).get("items", {}).get("nodes", [])
+    if not data:
+        return []
     
-    result = []
-    for item in items:
-        parsed = {
-            "id": item["id"],
-            "title": item.get("content", {}).get("title", "无标题"),
-            "body": item.get("content", {}).get("body", ""),
-            "number": item.get("content", {}).get("number"),
-            "state": item.get("content", {}).get("state"),
-            "status": None,
-            "agent": None,
-            "start_date": None
-        }
+    items = []
+    for node in data.get("node", {}).get("items", {}).get("nodes", []):
+        item_id = node.get("id")
+        content = node.get("content", {})
+        title = content.get("title", "")
+        body = content.get("body", "")
         
-        for fv in item.get("fieldValues", {}).get("nodes", []):
+        # 解析字段值
+        status = None
+        agent = None
+        start_date = None
+        
+        for fv in node.get("fieldValues", {}).get("nodes", []):
             field_name = fv.get("field", {}).get("name", "")
             if field_name == "Status":
-                parsed["status"] = fv.get("optionId")
+                status = fv.get("optionId")
             elif field_name == "Agent":
-                parsed["agent"] = fv.get("optionId")
+                agent = fv.get("optionId")
             elif field_name == "Start date":
-                parsed["start_date"] = fv.get("date")
+                start_date = fv.get("date")
         
-        result.append(parsed)
+        items.append({
+            "id": item_id,
+            "title": title,
+            "body": body,
+            "status": status,
+            "agent": agent,
+            "start_date": start_date
+        })
     
-    return result
+    return items
 
 
 def update_item_status(item_id: str, status_option_id: str) -> bool:
     """更新任务状态"""
     if not STATUS_FIELD_ID:
-        log("⚠️ STATUS_FIELD_ID 未初始化，跳过状态更新")
+        log("❌ STATUS_FIELD_ID 未设置")
         return False
     
     mutation = """
@@ -576,6 +378,274 @@ def get_agent_name_by_option_id(option_id: str) -> Optional[str]:
         if oid == option_id:
             return name
     return None
+
+
+# ============ Agent 命令行工具（供SKILLS.md调用） ============
+
+def complete_task(item_id: str) -> bool:
+    """标记任务为完成（供Agent调用）"""
+    log(f"标记任务完成: {item_id}")
+    if not resolve_project_fields():
+        log("❌ 无法获取项目字段信息")
+        return False
+    return update_item_status(item_id, STATUS_DONE)
+
+
+def fail_task(item_id: str) -> bool:
+    """标记任务为失败（供Agent调用）"""
+    log(f"标记任务失败: {item_id}")
+    if not resolve_project_fields():
+        log("❌ 无法获取项目字段信息")
+        return False
+    return update_item_status(item_id, STATUS_FAILED)
+
+
+def add_task_comment(item_id: str, body: str) -> bool:
+    """添加任务评论（供Agent调用）"""
+    log(f"添加评论到任务: {item_id}")
+    
+    # 首先获取任务的 Issue/PR ID
+    query = """
+    query($itemId: ID!) {
+        node(id: $itemId) {
+            ... on ProjectV2Item {
+                content {
+                    ... on Issue { id number }
+                    ... on PullRequest { id number }
+                }
+            }
+        }
+    }
+    """
+    
+    result = graphql_query(query, {"itemId": item_id})
+    if not result:
+        log("❌ 无法获取任务内容ID")
+        return False
+    
+    content = result.get("node", {}).get("content", {})
+    issue_id = content.get("id") if content else None
+    
+    if not issue_id:
+        log("❌ 任务没有关联的Issue/PR")
+        return False
+    
+    # 添加评论
+    mutation = """
+    mutation($subjectId: ID!, $body: String!) {
+        addComment(input: {subjectId: $subjectId, body: $body}) {
+            commentEdge { node { id } }
+        }
+    }
+    """
+    
+    result = graphql_query(mutation, {"subjectId": issue_id, "body": body})
+    if result and "errors" not in result:
+        log("✅ 评论添加成功")
+        return True
+    else:
+        log(f"❌ 评论添加失败: {result.get('errors', 'Unknown error')}")
+        return False
+
+
+# ============ WebSocket Client ============
+
+class OpenClawGatewayClient:
+    """OpenClaw Gateway WebSocket 客户端"""
+    
+    def __init__(self, ws_url: str = None, token: str = None):
+        self.ws_url = ws_url or DEFAULT_WS_URL
+        self.token = token or DEFAULT_GATEWAY_TOKEN
+        self.ws = None
+        self.request_id = 0
+        self.received_events = []
+    
+    async def connect(self) -> bool:
+        """连接到 WebSocket Gateway"""
+        try:
+            headers = {"Authorization": f"Bearer {self.token}"} if self.token else None
+            self.ws = await websockets.connect(self.ws_url, additional_headers=headers)
+            log(f"✅ WebSocket已连接: {self.ws_url}")
+            return True
+        except Exception as e:
+            log(f"❌ WebSocket连接失败: {e}")
+            return False
+    
+    async def close(self):
+        """关闭连接"""
+        if self.ws:
+            await self.ws.close()
+            log("WebSocket连接已关闭")
+    
+    async def request(self, method: str, params: Dict = None, timeout: int = 10) -> Dict:
+        """发送请求并等待响应"""
+        self.request_id += 1
+        req_id = f"req-{self.request_id}"
+        
+        frame = {
+            "type": "req",
+            "id": req_id,
+            "method": method,
+            "params": params or {}
+        }
+        
+        await self.ws.send(json.dumps(frame))
+        
+        # 等待响应
+        t0 = time.time()
+        while time.time() - t0 < timeout:
+            try:
+                raw = await asyncio.wait_for(self.ws.recv(), timeout=2)
+                msg = json.loads(raw)
+                
+                # 检查是否是响应
+                if msg.get("id") == req_id:
+                    return msg
+                # 否则存入事件列表
+                self.received_events.append(msg)
+            except asyncio.TimeoutError:
+                continue
+        
+        return {"type": "timeout", "method": method}
+    
+    async def execute_agent_task(self, agent_id: str, task_title: str, 
+                                  task_body: str, item_id: str, 
+                                  timeout: int = 300) -> Dict:
+        """
+        执行Agent任务并等待完成
+        
+        发送的任务消息格式：
+        {
+            "github_task": {
+                "item_id": "...",
+                "title": "...",
+                "body": "..."
+            }
+        }
+        """
+        # 构建任务消息（包含状态更新指令）
+        task_message = f"""执行GitHub Projects任务
+
+任务来源: GitHub Projects
+任务ID: {item_id}
+任务标题: {task_title}
+任务描述: {task_body}
+
+请按以下步骤执行：
+1. 读取 ~/.openclaw/workspace/ai-team/{agent_id}/SKILLS.md
+2. 根据任务描述找到匹配的技能路由
+3. 按照SKILLS.md中「GitHub Projects 任务执行流程」的顺序执行（包括群内汇报、状态更新、评论添加等）
+4. 返回执行结果摘要
+
+注意：
+- 所有执行细节（汇报格式、命令参数、执行顺序）以SKILLS.md中的「任务执行规范」为准
+- 完成后立即处理，不要等待主Agent
+"""
+
+        self.request_id += 1
+        create_req_id = f"session-create-{self.request_id}"
+        create_frame = {
+            "type": "req",
+            "id": create_req_id,
+            "method": "sessions.create",
+            "params": {
+                "agentId": agent_id,
+                "message": task_message
+            }
+        }
+        
+        log(f"发送任务到Agent [{agent_id}]: {task_title[:50]}...")
+        await self.ws.send(json.dumps(create_frame))
+
+        chunks = []
+        session_key = None
+        run_id = None
+        t0 = time.time()
+        first_chunk = None
+        final_state = None
+
+        while time.time() - t0 < timeout:
+            try:
+                raw = await asyncio.wait_for(self.ws.recv(), timeout=2)
+                msg = json.loads(raw)
+
+                # 检查 sessions.create 响应
+                if msg.get("id") == create_req_id:
+                    if msg.get("type") == "res":
+                        if msg.get("ok"):
+                            payload = msg.get("payload", {})
+                            session_key = payload.get("key")
+                            run_id = payload.get("runId")
+                            log(f"会话创建成功: {session_key[:40]}..." if session_key and len(session_key) > 40 else f"会话创建成功: {session_key}")
+                        else:
+                            return {"error": msg.get("error", {}), "chunks": []}
+
+                # 收集 agent 回复事件
+                event_type = msg.get("event", "")
+                payload = msg.get("payload", {})
+
+                # chat 事件包含回复内容
+                if event_type == "chat" and isinstance(payload, dict):
+                    state = payload.get("state", "")
+                    message = payload.get("message", {})
+                    if isinstance(message, dict):
+                        content_list = message.get("content", [])
+                        if isinstance(content_list, list) and len(content_list) > 0:
+                            text = content_list[0].get("text", "")
+                            if text:
+                                if first_chunk is None:
+                                    first_chunk = time.time() - t0
+                                    log(f"首字节延迟: {first_chunk:.2f}s")
+                                chunks.append(text)
+                    
+                    final_state = state
+                    # final/complete 状态表示流结束
+                    if state in ("final", "complete"):
+                        elapsed = time.time() - t0
+                        log(f"✅ 任务执行完成 ({elapsed:.1f}s)")
+                        return {
+                            "session_key": session_key,
+                            "run_id": run_id,
+                            "chunks": chunks,
+                            "state": state,
+                            "elapsed": elapsed,
+                            "first_chunk": first_chunk
+                        }
+                    # error 状态表示出错
+                    elif state == "error":
+                        elapsed = time.time() - t0
+                        log(f"❌ 任务执行出错 ({elapsed:.1f}s)")
+                        return {
+                            "error": "execution_error",
+                            "chunks": chunks,
+                            "state": state,
+                            "elapsed": elapsed
+                        }
+                    # cancelled 状态表示被取消
+                    elif state == "cancelled":
+                        elapsed = time.time() - t0
+                        log(f"⚠️ 任务被取消 ({elapsed:.1f}s)")
+                        return {
+                            "error": "cancelled",
+                            "chunks": chunks,
+                            "state": state,
+                            "elapsed": elapsed
+                        }
+                    
+            except asyncio.TimeoutError:
+                continue
+            except Exception as e:
+                log(f"❌ 接收消息异常: {e}")
+                return {"error": str(e), "chunks": chunks}
+
+        # 超时
+        elapsed = time.time() - t0
+        log(f"⏱️ 任务执行超时 ({elapsed:.1f}s)")
+        return {
+            "error": "timeout",
+            "chunks": chunks,
+            "elapsed": elapsed
+        }
 
 
 # ============ 主调度逻辑 ============
@@ -763,74 +833,6 @@ async def test_connection():
         return True
     else:
         print("❌ WebSocket连接失败")
-        return False
-
-
-# ============ Agent 命令行工具（供SKILLS.md调用） ============
-
-def complete_task(item_id: str) -> bool:
-    """标记任务为完成（供Agent调用）"""
-    log(f"标记任务完成: {item_id}")
-    if not resolve_project_fields():
-        log("❌ 无法获取项目字段信息")
-        return False
-    return update_item_status(item_id, STATUS_DONE)
-
-
-def fail_task(item_id: str) -> bool:
-    """标记任务为失败（供Agent调用）"""
-    log(f"标记任务失败: {item_id}")
-    if not resolve_project_fields():
-        log("❌ 无法获取项目字段信息")
-        return False
-    return update_item_status(item_id, STATUS_FAILED)
-
-
-def add_task_comment(item_id: str, body: str) -> bool:
-    """添加任务评论（供Agent调用）"""
-    log(f"添加评论到任务: {item_id}")
-    
-    # 首先获取任务的 Issue/PR ID
-    query = """
-    query($itemId: ID!) {
-        node(id: $itemId) {
-            ... on ProjectV2Item {
-                content {
-                    ... on Issue { id number }
-                    ... on PullRequest { id number }
-                }
-            }
-        }
-    }
-    """
-    
-    result = graphql_query(query, {"itemId": item_id})
-    if not result:
-        log("❌ 无法获取任务内容ID")
-        return False
-    
-    content = result.get("node", {}).get("content", {})
-    issue_id = content.get("id") if content else None
-    
-    if not issue_id:
-        log("❌ 任务没有关联的Issue/PR")
-        return False
-    
-    # 添加评论
-    mutation = """
-    mutation($subjectId: ID!, $body: String!) {
-        addComment(input: {subjectId: $subjectId, body: $body}) {
-            commentEdge { node { id } }
-        }
-    }
-    """
-    
-    result = graphql_query(mutation, {"subjectId": issue_id, "body": body})
-    if result and "errors" not in result:
-        log("✅ 评论添加成功")
-        return True
-    else:
-        log(f"❌ 评论添加失败: {result.get('errors', 'Unknown error')}")
         return False
 
 
