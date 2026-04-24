@@ -492,8 +492,7 @@ class OpenClawGatewayClient:
     
     async def _send_connect(self):
         """发送 connect 握手请求"""
-        self.request_id += 1
-        connect_req_id = f"connect-{self.request_id}"
+        connect_req_id = str(uuid.uuid4())
         frame = {
             "type": "req",
             "id": connect_req_id,
@@ -503,8 +502,8 @@ class OpenClawGatewayClient:
                 "maxProtocol": 3,
                 "client": {
                     "id": "gateway-client",
-                    "version": "1.0.0",
-                    "platform": "python",
+                    "version": "1.0.0-test",
+                    "platform": sys.platform,
                     "mode": "backend"
                 },
                 "auth": {
